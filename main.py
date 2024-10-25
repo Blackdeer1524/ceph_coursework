@@ -120,9 +120,13 @@ class Tokenizer:
         self.col = 1
 
     def parse(self) -> tuple[list[Device], list[Bucket], list[Rule]]:
+        self.skip_whitespace_lns()
+
+        devices = list(self.parse_devices())
+        seen_devices = {d.name for d in devices}
         return (
-            list(self.parse_devices()),
-            list(self.parse_buckets()),
+            devices,
+            list(self.parse_buckets(seen_devices)),
             list(self.parse_rules()),
         )
 
@@ -219,11 +223,11 @@ class Tokenizer:
                 return t
         return None
 
-    def advance(self, n: int = 1):
+    def advance(self, n: int = 1) -> None:
         self.cursor += n
         self.col += n
 
-    def skip_whitespace_lns(self):
+    def skip_whitespace_lns(self) -> None:
         while self.cursor < len(self.text) and self.text[self.cursor].isspace():
             if self.text[self.cursor] == "\n":
                 self.last_newline_pos = self.cursor
@@ -256,7 +260,8 @@ class Tokenizer:
         self.advance(new - self.cursor)
 
     def parse_devices(self) -> Generator[Device, None, None]:
-        self.skip_whitespace_lns()
+        device_nums: set[str] = set()
+        seen_ids: set[str] = set()
         while True:
             if not self.match_substr("device"):
                 maybe_type = self.bucket_type()
@@ -271,6 +276,10 @@ class Tokenizer:
             if device_num is None:
                 self.report_error("expected device number")
 
+            if device_num in device_nums:
+                self.report_error("device with this number is already defined")
+            device_nums.add(device_num)
+
             self.skip_n(len(device_num))
             self.skip_whitespace_to_token_this_line()
 
@@ -281,6 +290,9 @@ class Tokenizer:
             osd_id = self.read_num()
             if osd_id is None:
                 self.report_error("bad osd declaration: expected a number")
+            if osd_id in seen_ids:
+                self.report_error("osd id already registered")
+            seen_ids.add(osd_id)
 
             self.skip_n(len(osd_id))
             self.skip_whitespace_to_token_this_line()
@@ -298,8 +310,9 @@ class Tokenizer:
             yield Device(int(device_num), "osd." + osd_id, class_name)
             self.skip_whitespace_lns_required()
 
-    def parse_buckets(self) -> Generator[Bucket, None, None]:
-        self.skip_whitespace_lns()
+    def parse_buckets(self, osd_ids: set[str]) -> Generator[Bucket, None, None]:
+        seen_ids: set[int] = set()
+        seen_names: set[str] = set()
         while True:
             bucket_type = self.bucket_type()
             if bucket_type is None:
@@ -316,7 +329,20 @@ class Tokenizer:
             self.skip_n(len(bucket_name))
             self.skip_whitespace_to_token_this_line()
 
-            yield self.parse_bucket_block(bucket_name, bucket_type)
+            b = self.parse_bucket_block(bucket_name, bucket_type)
+            if b.id in seen_ids:
+                self.report_error(f"bucket with id `{b.id}` already exists")
+            if b.name in seen_names:
+                self.report_error(f"bucket with name `{b.name}` already exists")
+
+            for c in b.children:
+                if c.name not in seen_names and c.name not in osd_ids:
+                    self.report_error(f"unknown child item: {c.name}")
+
+            seen_ids.add(b.id)
+            seen_names.add(b.name)
+
+            yield b
             self.skip_whitespace_lns_required()
 
     def parse_bucket_block(self, bname: str, btype: str) -> Bucket:
@@ -446,7 +472,8 @@ class Tokenizer:
         return BucketChild(name=item_name, weight=weight)
 
     def parse_rules(self) -> Generator[Rule, None, None]:
-        self.skip_whitespace_lns()
+        seen_ids: set[int] = set()
+        seen_names: set[str] = set()
         while True:
             if self.cursor >= len(self.text):
                 return
@@ -462,7 +489,16 @@ class Tokenizer:
             self.skip_n(len(rule_name))
             self.skip_whitespace_to_token_this_line()
 
-            yield self.parse_rule_block(rule_name)
+            rule = self.parse_rule_block(rule_name)
+            if rule.id in seen_ids:
+                self.report_error(f"rule with id `{rule.id}` already exists")
+            if rule.name in seen_names:
+                self.report_error(f"rule with name `{rule.name}` alread exists")
+
+            seen_ids.add(rule.id)
+            seen_names.add(rule.name)
+
+            yield rule
             self.skip_whitespace_lns_required()
 
     def parse_rule_block(self, name: str) -> Rule:
