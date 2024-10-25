@@ -31,7 +31,7 @@ assert platform.system() == "Linux", "Systems other than GNU/Linux are NOT suppo
 
 from dataclasses import dataclass
 from enum import Enum, auto
-from typing import Generator, Literal, NoReturn
+from typing import Generator, Literal, NoReturn, Self
 
 BucketT = (
     Literal["osd"]
@@ -74,7 +74,7 @@ class Bucket:
     btype: str
     # weight: float  # don't know how to handle weight for a bucket
     id: int
-    children: list[BucketChild]
+    children: dict[str, tuple[Self | Device, float]]
     alg: AlgType
     # hash: int = 0 # will NOT have hash field
 
@@ -123,7 +123,7 @@ class Tokenizer:
         self.skip_whitespace_lns()
 
         devices = list(self.parse_devices())
-        seen_devices = {d.name for d in devices}
+        seen_devices = {d.name : d for d in devices}
         return (
             devices,
             list(self.parse_buckets(seen_devices)),
@@ -310,9 +310,12 @@ class Tokenizer:
             yield Device(int(device_num), "osd." + osd_id, class_name)
             self.skip_whitespace_lns_required()
 
-    def parse_buckets(self, osd_ids: set[str]) -> Generator[Bucket, None, None]:
+    def parse_buckets(self, seen_devices: dict[str, Device]) -> Generator[Bucket, None, None]:
         seen_ids: set[int] = set()
         seen_names: set[str] = set()
+
+        seen_buckets: dict[str, Bucket] = {}
+
         while True:
             bucket_type = self.bucket_type()
             if bucket_type is None:
@@ -329,23 +332,26 @@ class Tokenizer:
             self.skip_n(len(bucket_name))
             self.skip_whitespace_to_token_this_line()
 
-            b = self.parse_bucket_block(bucket_name, bucket_type)
+            b = self.parse_bucket_block(bucket_name, bucket_type, seen_buckets, seen_devices)
             if b.id in seen_ids:
                 self.report_error(f"bucket with id `{b.id}` already exists")
             if b.name in seen_names:
                 self.report_error(f"bucket with name `{b.name}` already exists")
 
-            for c in b.children:
-                if c.name not in seen_names and c.name not in osd_ids:
-                    self.report_error(f"unknown child item: {c.name}")
-
             seen_ids.add(b.id)
             seen_names.add(b.name)
+            seen_buckets[b.name] = b
 
             yield b
             self.skip_whitespace_lns_required()
 
-    def parse_bucket_block(self, bname: str, btype: str) -> Bucket:
+    def parse_bucket_block(
+        self,
+        bname: str,
+        btype: str,
+        seen_buckets: dict[str, Bucket],
+        seen_devices: dict[str, Device],
+    ) -> Bucket:
         if not self.match_substr("{"):
             self.report_error("expected bucket block start")
         self.skip_n(1)
@@ -404,15 +410,26 @@ class Tokenizer:
                         "unknown alg type: only uniform, list, tree, straw2 are allowed"
                     )
             elif field == "item":
-                children = self.parse_bucket_items()
                 if b_id is None:
                     self.report_error("expected bucket to have an ID")
+                if b_alg is None:
+                    b_alg = AlgType.straw2
+
+                items = self.parse_bucket_items()
+                cdict: dict[str, tuple[Bucket | Device, float]] = {}
+                for c in items:
+                    if c.name in seen_buckets:
+                        cdict[c.name] = (seen_buckets[c.name], c.weight)
+                    elif c.name in seen_devices:
+                        cdict[c.name] = (seen_devices[c.name], c.weight)
+                    else:
+                        self.report_error(f"unknown child item: {c.name}")
+
                 if not self.match_substr("}"):
                     self.report_error("expected bucket block end")
                 self.skip_n(1)
-                if b_alg is None:
-                    b_alg = AlgType.straw2
-                return Bucket(bname, btype, b_id, children, b_alg)
+
+                return Bucket(bname, btype, b_id, cdict, b_alg)
             else:
                 self.report_error("unknown field")
             self.skip_whitespace_lns_required()
@@ -725,8 +742,17 @@ rule hot {
 
 def main():
     t = Tokenizer(text)
-    res = t.parse()
-    pprint(res)
+    (devices, buckets, rules) = t.parse()
+
+    # seen_devices = {d.name for d in devices}
+
+    m = {}
+    for b in buckets:
+        m[b.name] = b
+
+    pprint(devices)
+    pprint(buckets)
+    pprint(rules)
 
 
 if __name__ == "__main__":
