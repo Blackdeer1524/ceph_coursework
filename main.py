@@ -24,12 +24,14 @@ rule ::= "rule" <rulename> {
 """
 
 import platform
+from pprint import pprint
+import sys
 
 assert platform.system() == "Linux", "Systems other than GNU/Linux are NOT supported"
 
 from dataclasses import dataclass
 from enum import Enum, auto
-from typing import Any, Generator, Literal, NoReturn
+from typing import Generator, Literal, NoReturn
 
 BucketT = (
     Literal["osd"]
@@ -113,8 +115,19 @@ class Tokenizer:
         self.text = text
         self.cursor = 0
 
-    def skip_n(self, n: int):
-        self.cursor += n
+        self.last_newline_pos = -1
+        self.row = 1
+        self.col = 1
+
+    def parse(self) -> tuple[list[Device], list[Bucket], list[Rule]]:
+        return (
+            list(self.parse_devices()),
+            list(self.parse_buckets()),
+            list(self.parse_rules()),
+        )
+
+    def skip_n(self, n: int) -> None:
+        self.advance(n)
 
     def read_num(self) -> str | None:
         new = self.cursor
@@ -159,13 +172,33 @@ class Tokenizer:
             return None
         new += 1
         while new < len(self.text) and (
-            self.text[new].isalnum() or self.text[new] in "-_"
+            self.text[new].isalnum() or self.text[new] in "-_."
         ):
             new += 1
         return self.text[self.cursor : new]
 
     def report_error(self, msg: str) -> NoReturn:
-        raise ValueError(msg)
+        if self.cursor < len(self.text):
+            right_newline = self.cursor + self.text[self.cursor :].find("\n")
+        else:
+            right_newline = len(self.text)
+
+        col_prefix = f"{self.row} | "
+        print(
+            """\
+{}{}
+{}^
+{}{}
+""".format(
+                col_prefix,
+                self.text[self.last_newline_pos + 1 : right_newline],
+                " " * (len(col_prefix) + self.col - 1),
+                " " * len(col_prefix),
+                msg,
+            ),
+            file=sys.stderr,
+        )
+        exit(1)
 
     def bucket_type(self) -> BucketT | None:
         default_types: list[BucketT] = [
@@ -186,25 +219,45 @@ class Tokenizer:
                 return t
         return None
 
+    def advance(self, n: int = 1):
+        self.cursor += n
+        self.col += n
+
+    def skip_whitespace_lns(self):
+        while self.cursor < len(self.text) and self.text[self.cursor].isspace():
+            if self.text[self.cursor] == "\n":
+                self.last_newline_pos = self.cursor
+                self.row += 1
+                self.col = 0
+            self.advance()
+
     def skip_whitespace_lns_required(self) -> None:
         found = False
         while self.cursor < len(self.text) and self.text[self.cursor].isspace():
             if self.text[self.cursor] == "\n":
                 found = True
-            self.cursor += 1
+                self.last_newline_pos = self.cursor
+                self.row += 1
+                self.col = 0
+            self.advance()
         if not found:
             self.report_error("new line chars not found")
 
-    def skip_whitespaces(self) -> None:
+    def skip_whitespace_to_token_this_line(self) -> None:
         new = self.cursor
         while new < len(self.text) and self.text[new] in (" ", "\t"):
             new += 1
-        if new == self.cursor:
+        if (
+            new == self.cursor
+            and not self.text[self.cursor].isspace()
+            and self.text[self.cursor] not in "{}"
+        ):
             self.report_error("expected blank space")
+        self.advance(new - self.cursor)
 
     def parse_devices(self) -> Generator[Device, None, None]:
+        self.skip_whitespace_lns()
         while True:
-            self.skip_whitespace_lns_required()
             if not self.match_substr("device"):
                 maybe_type = self.bucket_type()
                 if maybe_type is not None:
@@ -212,14 +265,14 @@ class Tokenizer:
                 self.report_error("""expected "device" or buckets description""")
 
             self.skip_n(len("device"))
-            self.skip_whitespaces()
+            self.skip_whitespace_to_token_this_line()
 
             device_num = self.read_num()
             if device_num is None:
                 self.report_error("expected device number")
 
             self.skip_n(len(device_num))
-            self.skip_whitespaces()
+            self.skip_whitespace_to_token_this_line()
 
             if not self.match_substr("osd."):
                 self.report_error("expected osd id declaration")
@@ -230,23 +283,24 @@ class Tokenizer:
                 self.report_error("bad osd declaration: expected a number")
 
             self.skip_n(len(osd_id))
-            self.skip_whitespaces()
+            self.skip_whitespace_to_token_this_line()
 
             if not self.match_substr("class"):
                 yield Device(int(device_num), "osd." + osd_id)
                 continue
 
             self.skip_n(len("class"))
-            self.skip_whitespaces()
+            self.skip_whitespace_to_token_this_line()
             class_name = self.read_word()
             if class_name is None:
                 self.report_error("expected device class")
+            self.skip_n(len(class_name))
             yield Device(int(device_num), "osd." + osd_id, class_name)
-
-    def parse_buckets(self) -> Generator[Bucket, Any, None]:
-        while True:
             self.skip_whitespace_lns_required()
 
+    def parse_buckets(self) -> Generator[Bucket, None, None]:
+        self.skip_whitespace_lns()
+        while True:
             bucket_type = self.bucket_type()
             if bucket_type is None:
                 if self.match_substr("rule"):
@@ -254,15 +308,16 @@ class Tokenizer:
                 self.report_error("expected bucket type")
 
             self.skip_n(len(bucket_type))
-            self.skip_whitespaces()
+            self.skip_whitespace_to_token_this_line()
 
             bucket_name = self.read_word()
             if bucket_name is None:
                 self.report_error("expected bucket name")
             self.skip_n(len(bucket_name))
-            self.skip_whitespaces()
+            self.skip_whitespace_to_token_this_line()
 
             yield self.parse_bucket_block(bucket_name, bucket_type)
+            self.skip_whitespace_lns_required()
 
     def parse_bucket_block(self, bname: str, btype: str) -> Bucket:
         if not self.match_substr("{"):
@@ -284,7 +339,7 @@ class Tokenizer:
                     self.report_error("found double declaration of a field")
 
                 self.skip_n(len(field))
-                self.skip_whitespaces()
+                self.skip_whitespace_to_token_this_line()
 
                 if not self.match_substr("-"):
                     self.report_error("expected bucket ID (which are always negative)")
@@ -294,7 +349,6 @@ class Tokenizer:
                 if bucket_id is None:
                     self.report_error("expected bucket ID (which are always negative)")
                 self.skip_n(len(bucket_id))
-                self.skip_whitespaces()
 
                 b_id = -int(bucket_id)
             elif field == "alg":
@@ -302,7 +356,7 @@ class Tokenizer:
                     self.report_error("found double declaration of a field")
 
                 self.skip_n(len(field))
-                self.skip_whitespaces()
+                self.skip_whitespace_to_token_this_line()
 
                 alg = self.read_word()
                 if alg is None:
@@ -310,7 +364,6 @@ class Tokenizer:
                         "expected bucket algorith (one of [uniform | list | tree | straw2])"
                     )
                 self.skip_n(len(alg))
-                self.skip_whitespaces()
 
                 if alg == "uniform":
                     b_alg = AlgType.uniform
@@ -349,20 +402,19 @@ class Tokenizer:
         return res
 
     def parse_bucket_item(self) -> BucketChild | None:
-        self.skip_whitespaces()
         item_decl = self.read_word()
         if item_decl != "item":
             if self.match_substr("}"):
                 return None
             self.report_error("expected item declaration")
         self.skip_n(len(item_decl))
-        self.skip_whitespaces()
+        self.skip_whitespace_to_token_this_line()
 
         item_name = self.read_word()
         if item_name is None:
             self.report_error("expected item name")
         self.skip_n(len(item_name))
-        self.skip_whitespaces()
+        self.skip_whitespace_to_token_this_line()
 
         weight: float | None = None
         while True:
@@ -376,7 +428,7 @@ class Tokenizer:
 
             if key == "weight":
                 self.skip_n(len(key))
-                self.skip_whitespaces()
+                self.skip_whitespace_to_token_this_line()
 
                 w = self.read_float()
                 if w is None:
@@ -384,7 +436,7 @@ class Tokenizer:
                 weight = float(w)
 
                 self.skip_n(len(w))
-                self.skip_whitespaces()
+                self.skip_whitespace_to_token_this_line()
             else:
                 self.report_error("unexpected attribute")
 
@@ -393,24 +445,25 @@ class Tokenizer:
 
         return BucketChild(name=item_name, weight=weight)
 
-    def parse_rules(self) -> Generator[Rule, Any, None]:
+    def parse_rules(self) -> Generator[Rule, None, None]:
+        self.skip_whitespace_lns()
         while True:
-            self.skip_whitespace_lns_required()
             if self.cursor >= len(self.text):
                 return
 
             if not self.match_substr(target="rule"):
                 self.report_error("expected rule declaration")
             self.skip_n(len("rule"))
-            self.skip_whitespaces()
+            self.skip_whitespace_to_token_this_line()
 
             rule_name = self.read_word()
             if rule_name is None:
                 self.report_error("expected rule name")
             self.skip_n(len(rule_name))
-            self.skip_whitespaces()
+            self.skip_whitespace_to_token_this_line()
 
             yield self.parse_rule_block(rule_name)
+            self.skip_whitespace_lns_required()
 
     def parse_rule_block(self, name: str) -> Rule:
         if not self.match_substr("{"):
@@ -428,7 +481,7 @@ class Tokenizer:
 
             if key == "id":
                 self.skip_n(len(key))
-                self.skip_whitespaces()
+                self.skip_whitespace_to_token_this_line()
 
                 found_id = self.read_num()
                 if found_id is None:
@@ -439,7 +492,7 @@ class Tokenizer:
                 self.skip_whitespace_lns_required()
             elif key == "type":
                 self.skip_n(len(key))
-                self.skip_whitespaces()
+                self.skip_whitespace_to_token_this_line()
 
                 rule_type = self.read_word()
                 if rule_type is None:
@@ -451,7 +504,7 @@ class Tokenizer:
                 self.skip_whitespace_lns_required()
             elif key == "min_size":
                 self.skip_n(len(key))
-                self.skip_whitespaces()
+                self.skip_whitespace_to_token_this_line()
 
                 found_min_size = self.read_num()
                 if found_min_size is None:
@@ -461,7 +514,7 @@ class Tokenizer:
                 self.skip_whitespace_lns_required()
             elif key == "max_size":
                 self.skip_n(len(key))
-                self.skip_whitespaces()
+                self.skip_whitespace_to_token_this_line()
 
                 found_max_size = self.read_num()
                 if found_max_size is None:
@@ -498,22 +551,21 @@ class Tokenizer:
         return (t, c)
 
     def parse_step_take(self) -> TakeStep:
-        self.skip_whitespaces()
         if not self.match_substr("step"):
             self.report_error("expected rule `take` step")
         self.skip_n(len("step"))
-        self.skip_whitespaces()
+        self.skip_whitespace_to_token_this_line()
 
         if not self.match_substr("take"):
             self.report_error("expected rule `take` step")
         self.skip_n(len("take"))
-        self.skip_whitespaces()
+        self.skip_whitespace_to_token_this_line()
 
         btype = self.read_word()
         if btype is None:
             self.report_error("expected bucket type")
         self.skip_n(len(btype))
-        self.skip_whitespaces()
+        self.skip_whitespace_to_token_this_line()
 
         class_opt = self.read_word()
         if class_opt is None:
@@ -525,7 +577,7 @@ class Tokenizer:
                 "expected to see class option on the same line with `take` step"
             )
         self.skip_n(len(class_opt))
-        self.skip_whitespaces()
+        self.skip_whitespace_to_token_this_line()
 
         cls = self.read_word()
         if cls is None:
@@ -535,29 +587,33 @@ class Tokenizer:
         return TakeStep(btype, cls)
 
     def parse_step_choose(self) -> ChoiceStep:
-        self.skip_whitespaces()
         if not self.match_substr("step"):
             self.report_error("expected rule `choose` step")
         self.skip_n(len("step"))
-        self.skip_whitespaces()
+        self.skip_whitespace_to_token_this_line()
 
         choice = self.read_word()
         if choice not in ("choose", "chooseleaf"):
             self.report_error("expected `choose` or `chooseleaf`")
         self.skip_n(len(choice))
-        self.skip_whitespaces()
+        self.skip_whitespace_to_token_this_line()
 
         choice_opt = self.read_word()
         if choice_opt != "firstn":
             self.report_error("only `firstn` option is supported")
         self.skip_n(len(choice_opt))
-        self.skip_whitespaces()
+        self.skip_whitespace_to_token_this_line()
 
         N = self.read_num()
         if N is None:
             self.report_error("expected a number")
         self.skip_n(len(N))
-        self.skip_whitespaces()
+        self.skip_whitespace_to_token_this_line()
+
+        if not self.match_substr("type"):
+            self.report_error("expected `type` keyword")
+        self.skip_n(len("type"))
+        self.skip_whitespace_to_token_this_line()
 
         bucket_type = self.read_word()
         if bucket_type is None:
@@ -567,19 +623,74 @@ class Tokenizer:
         return ChoiceStep(is_chooseleaf=choice != "choose", bucket_type=bucket_type)
 
     def parse_step_emit(self) -> None:
-        self.skip_whitespaces()
         if not self.match_substr("step"):
             self.report_error("expected rule `take` step")
         self.skip_n(len("step"))
-        self.skip_whitespaces()
+        self.skip_whitespace_to_token_this_line()
 
         if not self.match_substr("emit"):
             self.report_error("expected `emit`")
         self.skip_n(len("emit"))
 
 
+text = """\
+device 0 osd.0 class hdd
+device 1 osd.1 class hdd
+device 2 osd.2 class ssd
+device 3 osd.3 class ssd
+device 4 osd.4 class hdd
+device 5 osd.5 class hdd
+device 6 osd.6 class ssd
+device 7 osd.7 class ssd
+
+host ceph-osd-server-1 {
+    id -1
+    alg straw2
+    item osd.0 weight 1.00
+    item osd.1 weight 1.00
+    item osd.2 weight 1.00
+    item osd.3 weight 1.00
+}
+host ceph-osd-server-2 {
+    id -2
+    alg straw2
+    item osd.4 weight 1.00
+    item osd.5 weight 1.00
+item osd.6 weight 1.00
+    item osd.7 weight 1.00
+}
+
+root default{
+id -3
+    alg straw2
+    item ceph-osd-server-1 weight 4.00
+    item ceph-osd-server-2 weight 4.00
+}
+rule cold {
+    id 0
+    type replicated
+    min_size 2
+    max_size 11
+    step take default class hdd
+    step chooseleaf firstn 0 type host
+    step emit
+}
+rule hot {
+    id 1
+    type replicated
+    min_size 2
+    max_size 11
+    step take default class ssd
+    step chooseleaf firstn 0 type host
+    step emit
+}
+"""
+
+
 def main():
-    print("here")
+    t = Tokenizer(text)
+    res = t.parse()
+    pprint(res)
 
 
 if __name__ == "__main__":
