@@ -33,20 +33,6 @@ import platform
 assert platform.system() == "Linux", "Systems other than GNU/Linux are NOT supported"
 
 
-BUCKETS_HIERARCHY = {
-    "host": 1,
-    "chassis": 2,
-    "rack": 3,
-    "row": 4,
-    "pdu": 5,
-    "pod": 6,
-    "room": 7,
-    "datacenter": 8,
-    "region": 9,
-    "root": 10,
-}
-
-
 class BucketT(StrEnum):
     host = auto()
     chassis = auto()
@@ -58,31 +44,32 @@ class BucketT(StrEnum):
     datacenter = auto()
     region = auto()
     root = auto()
-    
-    def __le__(self, value: str) -> bool:
-        if str(value) not in BUCKETS_HIERARCHY:
-            return False
-        return BUCKETS_HIERARCHY[str(self)] <= BUCKETS_HIERARCHY[str(value)]
+
+    def __le__(self, value: Any) -> bool:
+        return BucketT.BUCKETS_HIERARCHY[self] <= BucketT.BUCKETS_HIERARCHY[value]  # type: ignore
 
     def __lt__(self, value: Any) -> bool:
-        if str(value) not in BUCKETS_HIERARCHY:
-            return False
-        return BUCKETS_HIERARCHY[str(self)] < BUCKETS_HIERARCHY[str(value)]
+        return BucketT.BUCKETS_HIERARCHY[self] < BucketT.BUCKETS_HIERARCHY[value]  # type: ignore
 
-    def __eq__(self, value: Any) -> bool:
-        if str(value) not in BUCKETS_HIERARCHY:
-            return False
-        return BUCKETS_HIERARCHY[str(self)] == BUCKETS_HIERARCHY[str(value)]
-    
-    def __ge__(self, value: str) -> bool:
-        if str(value) not in BUCKETS_HIERARCHY:
-            return False
-        return BUCKETS_HIERARCHY[str(self)] >= BUCKETS_HIERARCHY[str(value)]
+    def __ge__(self, value: Any) -> bool:
+        return BucketT.BUCKETS_HIERARCHY[self] >= BucketT.BUCKETS_HIERARCHY[value]  # type: ignore
 
-    def __gt__(self, value: str) -> bool:
-        if str(value) not in BUCKETS_HIERARCHY:
-            return False
-        return BUCKETS_HIERARCHY[str(self)] > BUCKETS_HIERARCHY[str(value)]
+    def __gt__(self, value: Any) -> bool:
+        return BucketT.BUCKETS_HIERARCHY[self] > BucketT.BUCKETS_HIERARCHY[value]  # type: ignore
+
+
+BucketT.BUCKETS_HIERARCHY: dict[BucketT, int] = {  # type: ignore
+    BucketT.host: 1,
+    BucketT.chassis: 2,
+    BucketT.rack: 3,
+    BucketT.row: 4,
+    BucketT.pdu: 5,
+    BucketT.pod: 6,
+    BucketT.room: 7,
+    BucketT.datacenter: 8,
+    BucketT.region: 9,
+    BucketT.root: 10,
+}
 
 
 @dataclass()
@@ -112,7 +99,7 @@ class Bucket:
 
 @dataclass
 class TakeStep:
-    bucket_type: str
+    bucket_name: str
     device_class: str | None = None
 
 
