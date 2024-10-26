@@ -16,6 +16,7 @@ host ceph-osd-server-1 {
     item osd.2 weight 1.00
     item osd.3 weight 1.00
 }
+
 host ceph-osd-server-2 {
     id -2
     alg straw2

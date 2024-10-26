@@ -23,15 +23,66 @@ rule ::= "rule" <rulename> {
 }
 """
 
-import platform
 import sys
+from dataclasses import dataclass
+from enum import Enum, StrEnum, auto
+from typing import Any, Generator, NoReturn, Optional, Self
 
+import platform
 
 assert platform.system() == "Linux", "Systems other than GNU/Linux are NOT supported"
 
-from dataclasses import dataclass
-from enum import Enum, StrEnum, auto
-from typing import Generator, NoReturn, Optional, Self
+
+BUCKETS_HIERARCHY = {
+    "host": 1,
+    "chassis": 2,
+    "rack": 3,
+    "row": 4,
+    "pdu": 5,
+    "pod": 6,
+    "room": 7,
+    "datacenter": 8,
+    "region": 9,
+    "root": 10,
+}
+
+
+class BucketT(StrEnum):
+    host = auto()
+    chassis = auto()
+    rack = auto()
+    row = auto()
+    pdu = auto()
+    pod = auto()
+    room = auto()
+    datacenter = auto()
+    region = auto()
+    root = auto()
+    
+    def __le__(self, value: str) -> bool:
+        if str(value) not in BUCKETS_HIERARCHY:
+            return False
+        return BUCKETS_HIERARCHY[str(self)] <= BUCKETS_HIERARCHY[str(value)]
+
+    def __lt__(self, value: Any) -> bool:
+        if str(value) not in BUCKETS_HIERARCHY:
+            return False
+        return BUCKETS_HIERARCHY[str(self)] < BUCKETS_HIERARCHY[str(value)]
+
+    def __eq__(self, value: Any) -> bool:
+        if str(value) not in BUCKETS_HIERARCHY:
+            return False
+        return BUCKETS_HIERARCHY[str(self)] == BUCKETS_HIERARCHY[str(value)]
+    
+    def __ge__(self, value: str) -> bool:
+        if str(value) not in BUCKETS_HIERARCHY:
+            return False
+        return BUCKETS_HIERARCHY[str(self)] >= BUCKETS_HIERARCHY[str(value)]
+
+    def __gt__(self, value: str) -> bool:
+        if str(value) not in BUCKETS_HIERARCHY:
+            return False
+        return BUCKETS_HIERARCHY[str(self)] > BUCKETS_HIERARCHY[str(value)]
 
 
 @dataclass()
@@ -51,7 +102,7 @@ class AlgType(Enum):
 @dataclass
 class Bucket:
     name: str
-    btype: str
+    type: BucketT
     # weight: float  # don't know how to handle weight for a bucket
     id: int
     children: dict[str, tuple[Self | Device, float]]
@@ -83,36 +134,6 @@ class Rule:
     choose: ChoiceStep
 
 
-class BucketT(StrEnum):
-    osd = auto()
-    host = auto()
-    chassis = auto()
-    rack = auto()
-    row = auto()
-    pdu = auto()
-    pod = auto()
-    room = auto()
-    datacenter = auto()
-    region = auto()
-    root = auto()
-
-    def __lt__(self, value: str) -> bool:
-        h = {
-            "osd": 0,
-            "host": 1,
-            "chassis": 2,
-            "rack": 3,
-            "row": 4,
-            "pdu": 5,
-            "pod": 6,
-            "room": 7,
-            "datacenter": 8,
-            "region": 9,
-            "root": 10,
-        }
-        return h[self] < h[value]
-
-
 class Parser:
     def __init__(self, text: str):
         self.text = text
@@ -122,7 +143,7 @@ class Parser:
         self.row = 1
         self.col = 1
 
-    def parse(self) -> tuple[list[Bucket], list[Rule]]:
+    def parse(self) -> tuple[Bucket, list[Rule]]:
         self.skip_whitespace_lns()
 
         seen_devices = {d.name: d for d in self.parse_devices()}
@@ -135,7 +156,7 @@ class Parser:
             buckets.append(b)
             seen_buckets.add(b.name)
 
-            if b.btype == "root":
+            if b.type == "root":
                 if root_node is not None:
                     self.report_error_with_line(
                         f"root node already registered: {root_node.name}"
@@ -159,7 +180,7 @@ class Parser:
             self.report_error("found disconected nodes: " + ",".join(seen_buckets_c))
 
         rules = list(self.parse_rules(seen_buckets))
-        return buckets, rules
+        return root_node, rules
 
     def skip_n(self, n: int) -> None:
         self.advance(n)
@@ -243,7 +264,7 @@ class Parser:
         )
         exit(1)
 
-    def bucket_type(self) -> BucketT | None:
+    def read_bucket_type(self) -> BucketT | None:
         for t in BucketT:
             if self.match_substr(t):
                 return t
@@ -290,7 +311,7 @@ class Parser:
         seen_ids: set[str] = set()
         while True:
             if not self.match_substr("device"):
-                maybe_type = self.bucket_type()
+                maybe_type = self.read_bucket_type()
                 if maybe_type is not None:
                     return
                 self.report_error_with_line(
@@ -348,7 +369,7 @@ class Parser:
         child2parent: dict[str, str] = {}
 
         while True:
-            bucket_type = self.bucket_type()
+            bucket_type = self.read_bucket_type()
             if bucket_type is None:
                 if self.match_substr("rule"):
                     return
@@ -384,8 +405,8 @@ class Parser:
 
     def parse_bucket_block(
         self,
-        bname: str,
-        btype: str,
+        bucket_name: str,
+        bucket_type: BucketT,
         seen_devices: dict[str, Device],
         seen_buckets: dict[str, Bucket],
         child2parent: dict[str, str],
@@ -484,14 +505,14 @@ class Parser:
                     b_hash = 0
 
                 cdict = self.parse_bucket_items(
-                    bname, seen_devices, seen_buckets, child2parent
+                    bucket_name, bucket_type, seen_devices, seen_buckets, child2parent
                 )
 
                 if not self.match_substr("}"):
                     self.report_error_with_line("expected a bucket block end")
                 self.skip_n(1)
 
-                return Bucket(bname, btype, b_id, cdict, b_alg)
+                return Bucket(bucket_name, bucket_type, b_id, cdict, b_alg)
             else:
                 self.report_error_with_line("unknown field")
             self.skip_whitespace_lns_required()
@@ -499,6 +520,7 @@ class Parser:
     def parse_bucket_items(
         self,
         parent: str,
+        parent_type: BucketT,
         seen_devices: dict[str, Device],
         seen_buckets: dict[str, Bucket],
         child2parent: dict[str, str],
@@ -506,7 +528,7 @@ class Parser:
         res: dict[str, tuple[Bucket | Device, float]] = {}
         while True:
             item = self.parse_bucket_item(
-                parent, seen_buckets, seen_devices, child2parent
+                parent, parent_type, seen_buckets, seen_devices, child2parent
             )
             if item is None:
                 break
@@ -517,6 +539,7 @@ class Parser:
     def parse_bucket_item(
         self,
         parent: str,
+        parent_type: BucketT,
         seen_buckets: dict[str, Bucket],
         seen_devices: dict[str, Device],
         child2parent: dict[str, str],
@@ -533,8 +556,15 @@ class Parser:
         if item_name is None:
             self.report_error_with_line("expected an item name")
 
-        if item_name not in seen_buckets and item_name not in seen_devices:
+        if (b := seen_buckets.get(item_name)) is not None:
+            print(b.type, parent_type, b.type >= parent_type)
+            if b.type >= parent_type:
+                self.report_error_with_line(
+                    f"hierarchy violation: {item_name}({b.type}) is a child of {parent}({parent_type})"
+                )
+        elif item_name not in seen_devices:
             self.report_error_with_line("unknown item")
+
         if (p := child2parent.get(item_name)) is not None:
             self.report_error_with_line(f"item already registered at {p}")
         child2parent[item_name] = parent
@@ -761,7 +791,7 @@ class Parser:
         self.skip_n(len("type"))
         self.skip_whitespace_to_token_this_line()
 
-        bucket_type = self.bucket_type()
+        bucket_type = self.read_bucket_type()
         if bucket_type is None:
             self.report_error_with_line("expected a bucket type")
         self.skip_n(len(bucket_type))

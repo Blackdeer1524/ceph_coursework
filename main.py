@@ -5,15 +5,11 @@ from parser import Parser
 
 def main():
     t = Parser(text)
-    (buckets, rules) = t.parse()
+    (root, rules) = t.parse()
 
     # seen_devices = {d.name for d in devices}
 
-    m = {}
-    for b in buckets:
-        m[b.name] = b
-
-    pprint(buckets)
+    pprint(root)
     pprint(rules)
 
 
