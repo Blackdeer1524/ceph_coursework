@@ -1,0 +1,52 @@
+text = """device 0 osd.0 class hdd
+device 1 osd.1 class hdd
+device 2 osd.2 class ssd
+device 3 osd.3 class ssd
+device 4 osd.4 class hdd
+device 5 osd.5 class hdd
+device 6 osd.6 class ssd
+device 7 osd.7 class ssd
+
+host ceph-osd-server-1 {
+    id -1
+    alg straw2
+    item osd.0 weight 1.00
+    item osd.1 weight 1.00
+    item osd.2 weight 1.00
+    item osd.3 weight 1.00
+}
+host ceph-osd-server-2 {
+    id -2
+    alg straw2
+    hash 0
+    item osd.4 weight 1.00
+    item osd.5 weight 1.00
+item osd.6 weight 1.00
+    item osd.7 weight 1.00
+}
+
+root default{
+id -3
+    alg straw2
+    item ceph-osd-server-1 weight 4.00
+    item ceph-osd-server-2 weight 4.00
+}
+rule cold {
+    id 0
+    type replicated
+    min_size 2
+    max_size 11
+    step take default class hdd
+    step chooseleaf firstn 0 type host
+    step emit
+}
+rule hot {
+    id 1
+    type replicated
+    min_size 2
+    max_size 11
+    step take default class ssd
+    step chooseleaf firstn 0 type host
+    step emit
+}
+"""
