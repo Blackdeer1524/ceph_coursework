@@ -6,6 +6,7 @@ device 4 osd.4 class hdd
 device 5 osd.5 class hdd
 device 6 osd.6 class ssd
 device 7 osd.7 class ssd
+device 8 osd.8 class ssd
 
 host ceph-osd-server-1 {
     id -1
