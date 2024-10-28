@@ -10,7 +10,6 @@ device 8 osd.8 class ssd
 
 host ceph-osd-server-1 {
     id -1
-    alg straw2
     item osd.0 weight 1.00
     item osd.1 weight 1.00
     item osd.2 weight 1.00
@@ -19,7 +18,6 @@ host ceph-osd-server-1 {
 
 host ceph-osd-server-2 {
     id -2
-    alg straw2
     hash 0
     item osd.4 weight 1.00
     item osd.5 weight 1.00
@@ -29,8 +27,7 @@ item osd.6 weight 1.00
 
 root default{
 id -3
-    alg straw2
-    item ceph-osd-server-1 weight 4.00
+    item ceph-osd-server-1 
     item ceph-osd-server-2 weight 4.00
 }
 rule cold {

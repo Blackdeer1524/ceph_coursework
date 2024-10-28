@@ -4,11 +4,9 @@ from parser import Parser
 
 
 def main():
-    t = Parser(text)
-    (root, rules) = t.parse()
-
-    # seen_devices = {d.name for d in devices}
-
+    p = Parser(text)
+    (root, rules) = p.parse()
+    
     pprint(root)
     pprint(rules)
 

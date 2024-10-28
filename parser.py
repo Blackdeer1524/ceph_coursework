@@ -26,7 +26,7 @@ rule ::= "rule" <rulename> {
 import sys
 from dataclasses import dataclass
 from enum import Enum, StrEnum, auto
-from typing import Any, Generator, NoReturn, Optional, Self
+from typing import Any, Generator, Literal, NoReturn, Optional, Self
 
 import platform
 
@@ -59,6 +59,7 @@ class BucketT(StrEnum):
 
 
 BucketT.BUCKETS_HIERARCHY: dict[BucketT, int] = {  # type: ignore
+    "osd": 0,
     BucketT.host: 1,
     BucketT.chassis: 2,
     BucketT.rack: 3,
@@ -74,8 +75,7 @@ BucketT.BUCKETS_HIERARCHY: dict[BucketT, int] = {  # type: ignore
 
 @dataclass()
 class Device:
-    seq_num: int
-    name: str  # osd.{NUM}
+    id: int
     device_class: str | None = None
 
 
@@ -87,14 +87,27 @@ class AlgType(Enum):
 
 
 @dataclass
+class Straw2Arg:
+    weights: list[int]
+    ids: list[int]
+
+
+@dataclass
 class Bucket:
     name: str
     type: BucketT
     # weight: float  # don't know how to handle weight for a bucket
     id: int
-    children: dict[str, tuple[Self | Device, float]]
-    alg: AlgType
+    # NOTE: can implement device class hierarchy using dict[device_class, list[Self | tuple[Device, int]]]
+    children: list[
+        Self | tuple[Device, int]
+    ]  # id -> (Bucket | Device, weight in 16.16 fixpoint format)
+    alg: AlgType  # actually AlgType.straw2
     # hash: int = 0 # will NOT have hash field
+
+    def choose(self, x: int, r: int, arg: Straw2Arg) -> Self | tuple[Device, int]:
+        assert self.alg == AlgType.straw2
+        raise NotImplementedError
 
 
 @dataclass
@@ -106,7 +119,7 @@ class TakeStep:
 @dataclass
 class ChoiceStep:
     is_chooseleaf: bool
-    bucket_type: str
+    bucket_type: BucketT | Literal["osd"]
 
 
 @dataclass
@@ -121,6 +134,10 @@ class Rule:
     choose: ChoiceStep
 
 
+def float2fixpoint(w: float) -> int:
+    return int(w * (1 << 16))
+
+
 class Parser:
     def __init__(self, text: str):
         self.text = text
@@ -133,7 +150,7 @@ class Parser:
     def parse(self) -> tuple[Bucket, list[Rule]]:
         self.skip_whitespace_lns()
 
-        seen_devices = {d.name: d for d in self.parse_devices()}
+        seen_devices = {"osd." + str(d.id): d for d in self.parse_devices()}
 
         buckets: list[Bucket] = []
         seen_buckets: set[str] = set()
@@ -157,10 +174,13 @@ class Parser:
         seen_buckets_c.remove(root_node.name)
 
         def traverse(cur: Bucket):
-            for name, child in cur.children.items():
-                if isinstance(child[0], Bucket):
-                    seen_buckets_c.remove(name)
-                    traverse(child[0])
+            for item in cur.children:
+                match item:
+                    case Bucket(name=name) as b:
+                        seen_buckets_c.remove(name)
+                        traverse(b)
+                    case (Device(), _):
+                        ...
 
         traverse(root_node)
         if len(seen_buckets_c) > 0:
@@ -336,7 +356,7 @@ class Parser:
             self.skip_whitespace_to_token_this_line()
 
             if not self.match_substr("class"):
-                yield Device(int(device_num), "osd." + osd_id)
+                yield Device(int(osd_id))
                 continue
 
             self.skip_n(len("class"))
@@ -345,7 +365,7 @@ class Parser:
             if class_name is None:
                 self.report_error_with_line("expected a device class")
             self.skip_n(len(class_name))
-            yield Device(int(device_num), "osd." + osd_id, class_name)
+            yield Device(int(osd_id), class_name)
             self.skip_whitespace_lns_required()
 
     def parse_buckets(
@@ -458,16 +478,19 @@ class Parser:
 
                 if alg == "uniform":
                     b_alg = AlgType.uniform
-                elif alg == "list":
-                    b_alg = AlgType.list
-                elif alg == "tree":
-                    b_alg = AlgType.tree
-                elif alg == "straw2":
-                    b_alg = AlgType.straw2
                 else:
-                    self.report_error_with_line(
-                        "unknown alg type: only uniform, list, tree, straw2 are allowed"
-                    )
+                    self.report_error_with_line("only uniform alg is allowed")
+
+                # elif alg == "list":
+                #     b_alg = AlgType.list
+                # elif alg == "tree":
+                #     b_alg = AlgType.tree
+                # elif alg == "straw2":
+                #     b_alg = AlgType.straw2
+                # else:
+                #     self.report_error_with_line(
+                #         "unknown alg type: only uniform, list, tree, straw2 are allowed"
+                #     )
             elif field == "hash":
                 if b_hash is not None:
                     self.report_error_with_line("found double declaration of a field")
@@ -511,15 +534,15 @@ class Parser:
         seen_devices: dict[str, Device],
         seen_buckets: dict[str, Bucket],
         child2parent: dict[str, str],
-    ) -> dict[str, tuple[Bucket | Device, float]]:
-        res: dict[str, tuple[Bucket | Device, float]] = {}
+    ) -> list[Bucket | tuple[Device, int]]:
+        res: list[Bucket | tuple[Device, int]] = []
         while True:
-            item = self.parse_bucket_item(
+            item_res = self.parse_bucket_item(
                 parent, parent_type, seen_buckets, seen_devices, child2parent
             )
-            if item is None:
+            if item_res is None:
                 break
-            res[item[0].name] = item
+            res.append(item_res)
             self.skip_whitespace_lns_required()
         return res
 
@@ -530,7 +553,7 @@ class Parser:
         seen_buckets: dict[str, Bucket],
         seen_devices: dict[str, Device],
         child2parent: dict[str, str],
-    ) -> tuple[Bucket | Device, float] | None:
+    ) -> Bucket | tuple[Device, int] | None:
         item_decl = self.read_word()
         if item_decl != "item":
             if self.match_substr("}"):
@@ -543,13 +566,16 @@ class Parser:
         if item_name is None:
             self.report_error_with_line("expected an item name")
 
+        weight_is_required = False
         if (b := seen_buckets.get(item_name)) is not None:
             print(b.type, parent_type, b.type >= parent_type)
             if b.type >= parent_type:
                 self.report_error_with_line(
                     f"hierarchy violation: {item_name}({b.type}) is a child of {parent}({parent_type})"
                 )
-        elif item_name not in seen_devices:
+        elif item_name in seen_devices:
+            weight_is_required = True
+        else:
             self.report_error_with_line("unknown item")
 
         if (p := child2parent.get(item_name)) is not None:
@@ -583,13 +609,14 @@ class Parser:
             else:
                 self.report_error_with_line("unexpected attribute")
 
-        if weight is None:
+        if weight_is_required and weight is None:
             self.report_error_with_line("no weight was declared")
 
         if (b := seen_buckets.get(item_name)) is not None:
-            return (b, weight)
+            return b
         else:
-            return (seen_devices[item_name], weight)
+            assert weight is not None
+            return (seen_devices[item_name], float2fixpoint(weight))
 
     def parse_rules(self, seen_buckets: set[str]) -> Generator[Rule, None, None]:
         seen_ids: set[int] = set()
@@ -762,6 +789,8 @@ class Parser:
         self.skip_whitespace_to_token_this_line()
 
         choice_opt = self.read_word()
+        if choice_opt is None:
+            self.report_error_with_line("expected `firstn` option")
         if choice_opt != "firstn":
             self.report_error_with_line("only `firstn` option is supported")
         self.skip_n(len(choice_opt))
@@ -778,9 +807,12 @@ class Parser:
         self.skip_n(len("type"))
         self.skip_whitespace_to_token_this_line()
 
-        bucket_type = self.read_bucket_type()
+        bucket_type: BucketT | None | Literal["osd"] = self.read_bucket_type()
         if bucket_type is None:
+            if self.match_substr("osd"):
+                bucket_type = "osd"
             self.report_error_with_line("expected a bucket type")
+
         self.skip_n(len(bucket_type))
 
         return ChoiceStep(is_chooseleaf=choice != "choose", bucket_type=bucket_type)
