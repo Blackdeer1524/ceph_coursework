@@ -23,7 +23,7 @@ rule: "rule" <rulename> {
 import sys
 from dataclasses import dataclass
 from enum import Enum, StrEnum, auto
-from typing import Any, Generator, Literal, NoReturn, Optional, Self
+from typing import Any, Deque, Generator, Literal, NoReturn, Optional, Self
 
 import platform
 
@@ -99,7 +99,7 @@ class Bucket:
     id: int
     # NOTE: can implement device class hierarchy using dict[device_class, list[Self | tuple[Device, int]]]
     children: list[
-        Self | tuple[Device, int]
+        tuple[Self | Device, int]
     ]  # id -> (Bucket | Device, weight in 16.16 fixpoint format)
     alg: AlgType  # actually AlgType.straw2
     # hash: int = 0 # will NOT have hash field
@@ -130,13 +130,14 @@ class Bucket:
 
 @dataclass
 class TakeStep:
-    bucket_name: str
+    name: str
     device_class: str | None = None
 
 
 @dataclass
 class ChoiceStep:
     is_chooseleaf: bool
+    n: int
     bucket_type: BucketT | Literal["osd"]
 
 
@@ -148,7 +149,7 @@ class Rule:
     min_size: int
     max_size: int
 
-    rules: list[TakeStep | ChoiceStep]
+    rules: Deque[TakeStep | ChoiceStep]
 
 
 def float2fixpoint(w: float) -> int:
@@ -744,8 +745,8 @@ class Parser:
             else:
                 self.report_error_with_line("unexpected rule field")
 
-    def parse_rule_steps(self, seen_buckets: set[str]) -> list[TakeStep | ChoiceStep]:
-        rules: list[TakeStep | ChoiceStep] = []
+    def parse_rule_steps(self, seen_buckets: set[str]) -> Deque[TakeStep | ChoiceStep]:
+        rules: Deque[TakeStep | ChoiceStep] = Deque()
         while True:
             if not self.match_substr("step"):
                 self.report_error_with_line("expected rule `take` step")
@@ -830,4 +831,4 @@ class Parser:
 
         self.skip_n(len(bucket_type))
 
-        return ChoiceStep(is_chooseleaf=is_chooseleaf, bucket_type=bucket_type)
+        return ChoiceStep(is_chooseleaf=is_chooseleaf, n=int(N), bucket_type=bucket_type)

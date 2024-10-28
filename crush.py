@@ -1,23 +1,26 @@
 from dataclasses import dataclass
-from typing import Literal
+from typing import Deque, Literal
 from hashing import crush_hash_2
-from parser import Bucket, BucketT, Device, Rule
+from parser import Bucket, BucketT, ChoiceStep, Device, Rule, TakeStep
 
 
-def bfs(h: Bucket, name: str) -> Bucket | None:
+def bfs(h: Bucket | Device, name: str) -> Bucket | Device | None:
     q: list[Bucket | Device] = [h]
     while len(q) > 0:
         s = q.pop()
-        if not isinstance(s, Bucket):
-            continue
-        if s.name == name:
-            return s
-        for c in s.children:
-            match c:
-                case (Device() as d, _):
-                    q.append(d)
-                case Bucket() as b:
-                    q.append(b)
+        match s:
+            case Bucket() as b:
+                if b.name == name:
+                    return b
+                for c in b.children:
+                    match c:
+                        case (Device() as d, _):
+                            q.append(d)
+                        case Bucket() as b:
+                            q.append(b)
+            case Device() as d:
+                if f"osd.{d.id}" == name:
+                    return d
     return None
 
 
@@ -46,6 +49,7 @@ def choose_firstn(
     cur: Bucket,
     target: BucketT | Literal["osd"],
     num_replicas: int,
+    max_replicas: int,
     tries: int,
     recurcive_tries: int,
     recurse_to_leaf: bool,
@@ -53,9 +57,15 @@ def choose_firstn(
     out2: list[Device],
     outpos: int,
 ) -> int:
+    if num_replicas == 0:
+        num_replicas = len(cur.children)
+    elif num_replicas < 0:
+        num_replicas = max_replicas + num_replicas
+
     ftotal = 0
-    for r in range(num_replicas):
+    for rep in range(num_replicas):
         skip_rep = False
+        r = rep + ftotal
 
         while True:
             item = cur
@@ -84,6 +94,7 @@ def choose_firstn(
                                 b,
                                 "osd",
                                 1,
+                                0, 
                                 recurcive_tries,
                                 0,
                                 False,
@@ -94,6 +105,8 @@ def choose_firstn(
                             if res <= outpos:
                                 skip_rep = True
                                 break
+                        out.append(b)  # type: ignore by invariant
+                        outpos += 1
                     case (Device() as d, weight):
                         if (
                             target != "osd"
@@ -106,7 +119,10 @@ def choose_firstn(
                                 ftotal += 1
                                 repeat_descent = True
                             break
-                        out2.append(d)  # type: ignore by invariant
+                        out.append(d)  # type: ignore by invariant
+                        outpos += 1
+                        if recurse_to_leaf:
+                            out2.append(d) 
                 if not repeat_bucket:
                     break
             if not repeat_descent:
@@ -115,33 +131,74 @@ def choose_firstn(
         if skip_rep:
             continue
 
-        out.append(item)  # type: ignore by invariant
-        outpos += 1
     return outpos
 
 
 def apply(
-    x: int, h: Bucket, r: Rule, num_reps: int, tunables: Tunables
-) -> list[Device] | list[Bucket] | str:
-    start = bfs(h, r.take.bucket_name)
-    if start is None:
-        return r.take.bucket_name + " not found"
+    x: int,
+    root: Bucket,
+    rule: Rule,
+    num_reps: int,
+    pool_replicas: int,
+    tunables: Tunables,
+) -> list[Device | Bucket] | str:
+    i: list[Device | Bucket] = [root]
 
-    out: list[Device] | list[Bucket] = []
-    out2: list[Device] = []
+    rules = rule.rules
+    new_i: list[Device | Bucket] = []
+    while len(rules) > 0:
+        s = rules.popleft()
+        match s:
+            case TakeStep() as t:
+                for item in i:
+                    h = bfs(item, t.name)
+                    if h is None:
+                        continue
+                    new_i.append(h)
+            case ChoiceStep() as c:
+                if c.is_chooseleaf:
+                    for item in i:
+                        if isinstance(item, Device):
+                            continue
 
-    if r.choose.is_chooseleaf:
-        choose_firstn(
-            x,
-            start,
-            r.choose.bucket_type,
-            num_reps,
-            tunables.choose_total_tries,
-            tunables.choose_total_tries,
-            True,
-            out,
-            out2,
-            0,
-        )
-        out = out2
-    return out
+                        out: list[Bucket] | list[Device] = []
+                        out2: list[Device] = []
+                        choose_firstn(
+                            x,
+                            item,
+                            c.bucket_type,
+                            s.n,
+                            pool_replicas,
+                            tunables.choose_total_tries,
+                            tunables.choose_total_tries,
+                            True,
+                            out,
+                            out2,
+                            0,
+                        )
+                        new_i.extend(out2)
+                else:
+                    for item in i:
+                        if isinstance(item, Device):
+                            continue
+
+                        out: list[Bucket] | list[Device] = []
+                        choose_firstn(
+                            x,
+                            item,
+                            c.bucket_type,
+                            s.n,
+                            pool_replicas,
+                            tunables.choose_total_tries,
+                            tunables.choose_total_tries,
+                            False,
+                            out,
+                            [],
+                            0,
+                        )
+                        new_i.extend(out)
+        if len(new_i) == 0:
+            return []
+        i = new_i
+        new_i = []
+    return i
