@@ -106,26 +106,27 @@ class Bucket:
 
     def choose(self, x: int, r: int) -> Self | tuple[Device, int]:
         assert self.alg == AlgType.straw2
-        
+
         S64_MIN = -((1 << 64) - 1)
 
         high_draw = 0
-        high = 0 
+        high = 0
         for i in range(len(self.children)):
             match self.children[i]:
                 case Bucket():
                     draw = S64_MIN
                 case Device() as d, w:
-                    u  = crush_hash32_3(x, d.id, r)
+                    u = crush_hash32_3(x, d.id, r)
                     u &= 0xFFFF
                     ln = crush_ln(u) - 0x1000000000000
                     draw = int(ln / w) if w else S64_MIN
-            
+
             if i == 0 or high_draw < draw:
-                high = i;
-                high_draw = draw;
+                high = i
+                high_draw = draw
 
         return self.children[high]
+
 
 @dataclass
 class TakeStep:
@@ -147,8 +148,7 @@ class Rule:
     min_size: int
     max_size: int
 
-    take: TakeStep
-    choose: ChoiceStep
+    rules: list[TakeStep | ChoiceStep]
 
 
 def float2fixpoint(w: float) -> int:
@@ -727,7 +727,7 @@ class Parser:
                 self.skip_n(len(found_max_size))
                 self.skip_whitespace_lns_required()
             elif key == "step":
-                (take, choose) = self.parse_rule_steps(seen_buckets)
+                rules = self.parse_rule_steps(seen_buckets)
                 if not self.match_substr("}"):
                     self.report_error_with_line("expected an end of rule declaration")
                 self.skip_n(1)
@@ -739,32 +739,41 @@ class Parser:
                     id=rule_id,
                     min_size=rule_min_size,
                     max_size=rule_max_size,
-                    take=take,
-                    choose=choose,
+                    rules = rules,
                 )
             else:
                 self.report_error_with_line("unexpected rule field")
 
-    def parse_rule_steps(self, seen_buckets: set[str]) -> tuple[TakeStep, ChoiceStep]:
-        t = self.parse_step_take(seen_buckets)
-        self.skip_whitespace_lns_required()
-        c = self.parse_step_choose()
-        self.skip_whitespace_lns_required()
-        self.parse_step_emit()
-        self.skip_whitespace_lns_required()
-        return (t, c)
+    def parse_rule_steps(self, seen_buckets: set[str]) -> list[TakeStep | ChoiceStep]:
+        rules: list[TakeStep | ChoiceStep] = []
+        while True:
+            if not self.match_substr("step"):
+                self.report_error_with_line("expected rule `take` step")
+            self.skip_n(len("step"))
+            self.skip_whitespace_to_token_this_line()
+
+            choice = self.read_word()
+            if choice is None:
+                self.report_error_with_line("expected step type")
+            if choice == "take":
+                self.skip_n(len(choice))
+                self.skip_whitespace_to_token_this_line()
+                rules.append(self.parse_step_take(seen_buckets))
+                self.skip_whitespace_lns_required()
+            elif choice in ("choose", "chooseleaf"):
+                self.skip_n(len(choice))
+                self.skip_whitespace_to_token_this_line()
+                rules.append(self.parse_step_choose(choice != "choose"))
+                self.skip_whitespace_lns_required()
+            elif choice == "emit":
+                self.skip_n(len(choice))
+                self.skip_whitespace_to_token_this_line()
+                self.skip_whitespace_lns_required()
+                break
+
+        return rules
 
     def parse_step_take(self, seen_buckets: set[str]) -> TakeStep:
-        if not self.match_substr("step"):
-            self.report_error_with_line("expected rule `take` step")
-        self.skip_n(len("step"))
-        self.skip_whitespace_to_token_this_line()
-
-        if not self.match_substr("take"):
-            self.report_error_with_line("expected rule `take` step")
-        self.skip_n(len("take"))
-        self.skip_whitespace_to_token_this_line()
-
         bucket = self.read_word()
         if bucket is None:
             self.report_error_with_line("expected bucket name")
@@ -793,18 +802,7 @@ class Parser:
 
         return TakeStep(bucket, cls)
 
-    def parse_step_choose(self) -> ChoiceStep:
-        if not self.match_substr("step"):
-            self.report_error_with_line("expected rule `choose` step")
-        self.skip_n(len("step"))
-        self.skip_whitespace_to_token_this_line()
-
-        choice = self.read_word()
-        if choice not in ("choose", "chooseleaf"):
-            self.report_error_with_line("expected `choose` or `chooseleaf`")
-        self.skip_n(len(choice))
-        self.skip_whitespace_to_token_this_line()
-
+    def parse_step_choose(self, is_chooseleaf: bool) -> ChoiceStep:
         choice_opt = self.read_word()
         if choice_opt is None:
             self.report_error_with_line("expected `firstn` option")
@@ -824,7 +822,7 @@ class Parser:
         self.skip_n(len("type"))
         self.skip_whitespace_to_token_this_line()
 
-        bucket_type: BucketT | None | Literal["osd"] = self.read_bucket_type()
+        bucket_type: (BucketT | None) | Literal["osd"] = self.read_bucket_type()
         if bucket_type is None:
             if self.match_substr("osd"):
                 bucket_type = "osd"
@@ -832,14 +830,4 @@ class Parser:
 
         self.skip_n(len(bucket_type))
 
-        return ChoiceStep(is_chooseleaf=choice != "choose", bucket_type=bucket_type)
-
-    def parse_step_emit(self) -> None:
-        if not self.match_substr("step"):
-            self.report_error_with_line("expected rule `take` step")
-        self.skip_n(len("step"))
-        self.skip_whitespace_to_token_this_line()
-
-        if not self.match_substr("emit"):
-            self.report_error_with_line("expected `emit`")
-        self.skip_n(len("emit"))
+        return ChoiceStep(is_chooseleaf=is_chooseleaf, bucket_type=bucket_type)
