@@ -1,26 +1,26 @@
+from ctypes import c_uint32 
 
 CRUSH_HASH_SEED = 1315423911
 
 def crush_hashmix(a: int, b: int, c: int): 
-    a = a-b;  a = a-c;  a = a^(c>>13);
-    b = b-c;  b = b-a;  b = b^(a<<8); 
-    c = c-a;  c = c-b;  c = c^(b>>13);
-    a = a-b;  a = a-c;  a = a^(c>>12);
-    b = b-c;  b = b-a;  b = b^(a<<16);
-    c = c-a;  c = c-b;  c = c^(b>>5); 
-    a = a-b;  a = a-c;  a = a^(c>>3); 
-    b = b-c;  b = b-a;  b = b^(a<<10);
-    c = c-a;  c = c-b;  c = c^(b>>15);
+    a = a-b;  a = a-c;  a = c_uint32(c_uint32(a).value ^ (c_uint32(c).value>>13)).value;
+    b = b-c;  b = b-a;  b = c_uint32(c_uint32(b).value^(c_uint32(a).value<<8)).value; 
+    c = c-a;  c = c-b;  c = c_uint32(c_uint32(c).value^(c_uint32(b).value>>13)).value;
+    a = a-b;  a = a-c;  a = c_uint32(c_uint32(a).value^(c_uint32(c).value>>12)).value;
+    b = b-c;  b = b-a;  b = c_uint32(c_uint32(b).value^(c_uint32(a).value<<16)).value;
+    c = c-a;  c = c-b;  c = c_uint32(c_uint32(c).value^(c_uint32(b).value>>5)).value; 
+    a = a-b;  a = a-c;  a = c_uint32(c_uint32(a).value^(c_uint32(c).value>>3)).value; 
+    b = b-c;  b = b-a;  b = c_uint32(c_uint32(b).value^(c_uint32(a).value<<10)).value;
+    c = c-a;  c = c-b;  c = c_uint32(c_uint32(c).value^(c_uint32(b).value>>15)).value;
     return a, b, c
     
 
 def crush_hash_2(a: int, b: int):
-    h = CRUSH_HASH_SEED ^ a
-    b = a
+    h = CRUSH_HASH_SEED ^ a ^ b
     x = 231232;
     y = 1232;
-
-    b, x, h = crush_hashmix(b, x, h);
-    y, a, h = crush_hashmix(y, a, h);
+    a, b, h = crush_hashmix(a, b, h);
+    x, a, h = crush_hashmix(x, a, h);
+    b, y, h = crush_hashmix(b, y, h);
     return h
     
