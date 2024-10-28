@@ -27,6 +27,8 @@ from typing import Any, Generator, Literal, NoReturn, Optional, Self
 
 import platform
 
+from hashing import crush_hash32_3, crush_ln
+
 assert platform.system() == "Linux", "Systems other than GNU/Linux are NOT supported"
 
 
@@ -102,10 +104,28 @@ class Bucket:
     alg: AlgType  # actually AlgType.straw2
     # hash: int = 0 # will NOT have hash field
 
-    def choose(self, x: int, r: int, arg: Straw2Arg) -> Self | tuple[Device, int]:
+    def choose(self, x: int, r: int) -> Self | tuple[Device, int]:
         assert self.alg == AlgType.straw2
-        raise NotImplementedError
+        
+        S64_MIN = -((1 << 64) - 1)
 
+        high_draw = 0
+        high = 0 
+        for i in range(len(self.children)):
+            match self.children[i]:
+                case Bucket():
+                    draw = S64_MIN
+                case Device() as d, w:
+                    u  = crush_hash32_3(x, d.id, r)
+                    u &= 0xFFFF
+                    ln = crush_ln(u) - 0x1000000000000
+                    draw = int(ln / w) if w else S64_MIN
+            
+            if i == 0 or high_draw < draw:
+                high = i;
+                high_draw = draw;
+
+        return self.children[high]
 
 @dataclass
 class TakeStep:

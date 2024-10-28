@@ -1,7 +1,7 @@
 from dataclasses import dataclass
 from typing import Literal
 from hashing import crush_hash_2
-from parser import Bucket, BucketT, Device, Rule, Straw2Arg
+from parser import Bucket, BucketT, Device, Rule
 
 
 def bfs(h: Bucket, name: str) -> Bucket | None:
@@ -44,14 +44,13 @@ def is_collision(out: list[Device] | list[Bucket], outpos: int, id: int) -> bool
 def choose_firstn(
     x: int,
     cur: Bucket,
-    arg: Straw2Arg,
     target: BucketT | Literal["osd"],
     num_replicas: int,
     tries: int,
     recurcive_tries: int,
     recurse_to_leaf: bool,
     out: list[Device] | list[Bucket],
-    out2: list[Device] ,
+    out2: list[Device],
     outpos: int,
 ) -> int:
     ftotal = 0
@@ -63,7 +62,7 @@ def choose_firstn(
             repeat_descent = False
             while True:
                 repeat_bucket = False
-                bd = item.choose(x, r, arg)
+                bd = item.choose(x, r)
                 match bd:
                     case Bucket() as b:
                         if b.type != target:
@@ -83,7 +82,6 @@ def choose_firstn(
                             res = choose_firstn(
                                 x,
                                 b,
-                                arg,
                                 "osd",
                                 1,
                                 recurcive_tries,
@@ -108,7 +106,7 @@ def choose_firstn(
                                 ftotal += 1
                                 repeat_descent = True
                             break
-                        out2[outpos] = d  # type: ignore by invariant
+                        out2.append(d)  # type: ignore by invariant
                 if not repeat_bucket:
                     break
             if not repeat_descent:
@@ -117,15 +115,33 @@ def choose_firstn(
         if skip_rep:
             continue
 
-        out[outpos] = item  # type: ignore by invariant
+        out.append(item)  # type: ignore by invariant
         outpos += 1
     return outpos
 
 
-def apply(h: Bucket, r: Rule, num_reps: int, tunables: Tunables):
+def apply(
+    x: int, h: Bucket, r: Rule, num_reps: int, tunables: Tunables
+) -> list[Device] | list[Bucket] | str:
     start = bfs(h, r.take.bucket_name)
     if start is None:
         return r.take.bucket_name + " not found"
 
-    # if not r.choose.is_chooseleaf:
-    #     choose_firstn(start, num_reps, tunables)
+    out: list[Device] | list[Bucket] = []
+    out2: list[Device] = []
+
+    if r.choose.is_chooseleaf:
+        choose_firstn(
+            x,
+            start,
+            r.choose.bucket_type,
+            num_reps,
+            tunables.choose_total_tries,
+            tunables.choose_total_tries,
+            True,
+            out,
+            out2,
+            0,
+        )
+        out = out2
+    return out
