@@ -1,18 +1,15 @@
 """
-devices ::= (device\n)+
-device ::= "device" "int" "osd.{INT}" [class STR] 
+device: device osd.{INT} [class STR] 
 
-buckets ::= (bucket)+
-bucket ::= [bucket-type](STR) [bucket-name](STR) "{"
-    "id" [a unique negative numeric ID] "-" INT
-    "weight" [the relative capacity/capability of the item(s)] INT
+bucket: [bucket-type] [bucket-name](STR) {
+    "id" [a unique negative numeric ID] 
+    "weight" [the relative capacity/capability of the item(s)]
     "alg" [the bucket type: uniform | list | tree | straw2 ]  
-    "hash" [the hash type: 0 by default] 
-    "item" [item-name] STR weight [weight] INT
-"}"
+    "hash" [the hash] 
+    "item" [item-name] weight [weight]
+}
 
-rules ::= (rules)*
-rule ::= "rule" <rulename> {
+rule: "rule" <rulename> {
     id <unique number>
     type [replicated | erasure]
     min_size <min-size>
