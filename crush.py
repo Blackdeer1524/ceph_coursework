@@ -1,7 +1,7 @@
 from dataclasses import dataclass
-from typing import Deque, Literal
+from typing import Literal
 from hashing import crush_hash_2
-from parser import Bucket, BucketT, ChoiceStep, Device, Rule, TakeStep
+from parser import Bucket, BucketT, ChoiceStep, Device, Rule, TakeStep, Weights, WeightT
 
 
 def bfs(h: Bucket | Device, name: str) -> Bucket | Device | None:
@@ -12,12 +12,8 @@ def bfs(h: Bucket | Device, name: str) -> Bucket | Device | None:
             case Bucket() as b:
                 if b.name == name:
                     return b
-                for c in b.children:
-                    match c:
-                        case (Device() as d, _):
-                            q.append(d)
-                        case Bucket() as b:
-                            q.append(b)
+                for bd in b.children:
+                    q.append(bd)
             case Device() as d:
                 if f"osd.{d.id}" == name:
                     return d
@@ -30,7 +26,7 @@ class Tunables:
     choose_total_tries: int
 
 
-def is_out(weight: int, item: int, x: int):
+def is_out(weight: WeightT, item: int, x: int) -> bool:
     if weight >= 0x10000:
         return False
     if weight == 0:
@@ -47,6 +43,7 @@ def is_collision(out: list[Device] | list[Bucket], outpos: int, id: int) -> bool
 def choose_firstn(
     x: int,
     cur: Bucket,
+    ws: Weights,
     target: BucketT | Literal["osd"],
     num_replicas: int,
     max_replicas: int,
@@ -72,7 +69,7 @@ def choose_firstn(
             repeat_descent = False
             while True:
                 repeat_bucket = False
-                bd = item.choose(x, r)
+                bd, weight = item.choose(x, r, ws)
                 match bd:
                     case Bucket() as b:
                         if b.type != target:
@@ -92,9 +89,10 @@ def choose_firstn(
                             res = choose_firstn(
                                 x,
                                 b,
+                                ws,
                                 "osd",
                                 1,
-                                0, 
+                                0,
                                 recurcive_tries,
                                 0,
                                 False,
@@ -107,7 +105,7 @@ def choose_firstn(
                                 break
                         out.append(b)  # type: ignore by invariant
                         outpos += 1
-                    case (Device() as d, weight):
+                    case Device() as d:
                         if (
                             target != "osd"
                             or is_collision(out, outpos, d.id)
@@ -122,7 +120,7 @@ def choose_firstn(
                         out.append(d)  # type: ignore by invariant
                         outpos += 1
                         if recurse_to_leaf:
-                            out2.append(d) 
+                            out2.append(d)
                 if not repeat_bucket:
                     break
             if not repeat_descent:
@@ -138,16 +136,16 @@ def apply(
     x: int,
     root: Bucket,
     rule: Rule,
-    num_reps: int,
     pool_replicas: int,
+    ws: Weights,
     tunables: Tunables,
-) -> list[Device | Bucket] | str:
+) -> list[Device] | str:
     i: list[Device | Bucket] = [root]
 
     rules = rule.rules
     new_i: list[Device | Bucket] = []
-    while len(rules) > 0:
-        s = rules.popleft()
+    for j in range(len(rules)):
+        s = rules[j]
         match s:
             case TakeStep() as t:
                 for item in i:
@@ -166,6 +164,7 @@ def apply(
                         choose_firstn(
                             x,
                             item,
+                            ws,
                             c.bucket_type,
                             s.n,
                             pool_replicas,
@@ -186,6 +185,7 @@ def apply(
                         choose_firstn(
                             x,
                             item,
+                            ws,
                             c.bucket_type,
                             s.n,
                             pool_replicas,
@@ -201,4 +201,13 @@ def apply(
             return []
         i = new_i
         new_i = []
-    return i
+
+    buckets: list[str] = []
+    for item in i:
+        if isinstance(item, Bucket):
+            buckets.append(f"[{item.id}] {item.name}")
+
+    if len(buckets) > 0:
+        return "crush rule generated buckets: {}".format(",".join(buckets))
+
+    return i # type: ignore  

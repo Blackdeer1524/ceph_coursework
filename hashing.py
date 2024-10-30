@@ -64,12 +64,12 @@ def crush_ln(xin: int) -> int:
 
     index1 = (x >> 8) << 1;
     # /* RH ~ 2^56/index1 */
-    RH = RH_LH_tbl[c_uint32(index1 - 256).value];
+    rh = RH_LH_tbl[c_uint32(index1 - 256).value];
     # /* LH ~ 2^48 * log2(index1/256) */
-    LH = RH_LH_tbl[c_uint32(index1 + 1 - 256).value];
+    lh = RH_LH_tbl[c_uint32(index1 + 1 - 256).value];
 
     # /* RH*x ~ 2^48 * (2^15 + xf), xf<2^8 */
-    xl64 = c_int64( x * RH).value;
+    xl64 = c_int64( x * rh).value;
     xl64 >>= 48;
 
     result = iexpon;
@@ -77,11 +77,11 @@ def crush_ln(xin: int) -> int:
 
     index2 = xl64 & 0xff;
     # /* LL ~ 2^48*log2(1.0+index2/2^15) */
-    LL = LL_tbl[index2];
+    ll = LL_tbl[index2];
 
-    LH = LH + LL;
+    lh = lh + ll;
 
-    LH >>= (48 - 12 - 32);
-    result += LH;
+    lh >>= (48 - 12 - 32);
+    result += lh;
 
     return result;
