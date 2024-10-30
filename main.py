@@ -33,6 +33,10 @@ def main():
     r.ws.devices_ws[res[1].id] = WeightT(0)
     res = apply(0, r.root, r.rules[0],  3, r.ws, Tunables(5))
     pprint(res)
+    
+    r.ws.buckets_ws[-2] = WeightT(0)
+    res = apply(0, r.root, r.rules[0],  3, r.ws, Tunables(5))
+    pprint(res)
 
 
 if __name__ == "__main__":

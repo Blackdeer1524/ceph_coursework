@@ -1,7 +1,17 @@
 from dataclasses import dataclass
 from typing import Literal
 from hashing import crush_hash_2
-from parser import Bucket, BucketT, ChoiceStep, Device, Rule, TakeStep, Weights, WeightT
+from parser import (
+    Bucket,
+    BucketT,
+    StepChoose,
+    Device,
+    Rule,
+    StepEmit,
+    StepTake,
+    Weights,
+    WeightT,
+)
 
 
 def bfs(h: Bucket | Device, name: str) -> Bucket | Device | None:
@@ -141,19 +151,20 @@ def apply(
     tunables: Tunables,
 ) -> list[Device] | str:
     i: list[Device | Bucket] = [root]
+    o: list[Device] = []
 
     rules = rule.rules
     new_i: list[Device | Bucket] = []
     for j in range(len(rules)):
         s = rules[j]
         match s:
-            case TakeStep() as t:
+            case StepTake() as t:
                 for item in i:
                     h = bfs(item, t.name)
                     if h is None:
                         continue
                     new_i.append(h)
-            case ChoiceStep() as c:
+            case StepChoose() as c:
                 if c.is_chooseleaf:
                     for item in i:
                         if isinstance(item, Device):
@@ -197,17 +208,19 @@ def apply(
                             0,
                         )
                         new_i.extend(out)
-        if len(new_i) == 0:
-            return []
+            case StepEmit():
+                buckets: list[str] = []
+                for item in i:
+                    if isinstance(item, Bucket):
+                        buckets.append(f"[{item.id}] {item.name}")
+
+                if len(buckets) > 0:
+                    return "{}th step of crush rule generated buckets: {}".format(
+                        ",".join(buckets)
+                    )
+                o.extend(i)  # type: ignore
+                i = []
         i = new_i
         new_i = []
 
-    buckets: list[str] = []
-    for item in i:
-        if isinstance(item, Bucket):
-            buckets.append(f"[{item.id}] {item.name}")
-
-    if len(buckets) > 0:
-        return "crush rule generated buckets: {}".format(",".join(buckets))
-
-    return i # type: ignore  
+    return o
