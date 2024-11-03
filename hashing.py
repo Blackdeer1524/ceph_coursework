@@ -1,4 +1,4 @@
-from ctypes import c_uint32, c_int64
+from ctypes import c_uint32, c_uint64
 from crush_ln_table import RH_LH_tbl, LL_tbl
 
 CRUSH_HASH_SEED = 1315423911
@@ -17,7 +17,7 @@ def crush_hashmix(a: int, b: int, c: int) -> tuple[int, int, int]:
     
 
 def crush_hash_2(a: int, b: int) -> int:
-    h = CRUSH_HASH_SEED ^ a ^ b
+    h = c_uint32(CRUSH_HASH_SEED ^ a ^ b).value
     x = 231232;
     y = 1232;
     a, b, h = crush_hashmix(a, b, h);
@@ -27,7 +27,7 @@ def crush_hash_2(a: int, b: int) -> int:
 
 
 def crush_hash32_3(a: int, b: int, c: int) -> int:
-    h = CRUSH_HASH_SEED ^ a ^ b ^ c;
+    h = c_uint32(CRUSH_HASH_SEED ^ a ^ b ^ c).value
     x = 231232;
     y = 1232;
     a, b, h = crush_hashmix(a, b, h);
@@ -57,7 +57,7 @@ def crush_ln(xin: int) -> int:
 
     # // figure out number of bits we need to shift and
     # // do it in one step instead of iteratively
-    if (not (x & 0x18000)):
+    if (x & 0x18000 == 0):
         bits = __builtin_clz(x & 0x1FFFF) - 16;
         x <<= bits;
         iexpon = 15 - bits;
@@ -69,7 +69,7 @@ def crush_ln(xin: int) -> int:
     lh = RH_LH_tbl[c_uint32(index1 + 1 - 256).value];
 
     # /* RH*x ~ 2^48 * (2^15 + xf), xf<2^8 */
-    xl64 = c_int64( x * rh).value;
+    xl64 = c_uint64( x * rh).value;
     xl64 >>= 48;
 
     result = iexpon;

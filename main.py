@@ -1,6 +1,8 @@
+from collections import defaultdict
+from dataclasses import dataclass
 from pprint import pprint
 import sys
-from typing import Generator
+from typing import DefaultDict, Generator
 from crush import Tunables, apply
 from parser import Parser, WeightT, DeviceID_T
 
@@ -10,33 +12,48 @@ def read_from_stdin_til_eof() -> Generator[str, None, None]:
         if s == '':
             return
         yield s
+        
+
+@dataclass
+class PoolParams:
+    size: int  # replicas count
+    min_size: int  # allowed minimum number of replicas returned by CRUSH
+    pg_count: int  # placement groups' count 
 
 
 def main():
     q = open("./maps/default_map").readlines()
     m = "".join(q)
     # m = "".join(read_from_stdin_til_eof())
-    print(m)
+    # print(m)
+
+    cfg = PoolParams(size=3, min_size=2, pg_count=20)
+    tunables = Tunables(5)
 
     p = Parser(m)
     r = p.parse()
     # pprint(r)
 
-    res = apply(0, r.root, r.rules[0],  3, r.ws, Tunables(5))
-    assert not isinstance(res, str), res
-    pprint(res)
+    rule = r.rules[0]
+    res = apply(0, r.root, rule,  cfg.size, r.ws, tunables)
 
-    r.ws.devices_ws[res[0].id] = WeightT(0)
-    res = apply(0, r.root, r.rules[0],  3, r.ws, Tunables(5))
-    pprint(res)
-
-    r.ws.devices_ws[res[1].id] = WeightT(0)
-    res = apply(0, r.root, r.rules[0],  3, r.ws, Tunables(5))
-    pprint(res)
+    osd2pg: DefaultDict[int, list[int]] = defaultdict(list)
     
-    r.ws.buckets_ws[-2] = WeightT(0)
-    res = apply(0, r.root, r.rules[0],  3, r.ws, Tunables(5))
-    pprint(res)
+    teams_list = ["PG", "Active set"]
+    row_format ="{:>4} | {:>15}"
+    print(row_format.format(*teams_list))
+    for pg_id in range(cfg.pg_count): 
+        res = apply(pg_id, r.root, rule,  cfg.size, r.ws, tunables)
+        assert(not isinstance(res, str))
+        for d in res:
+            osd2pg[d.id].append(pg_id)
+        print(row_format.format(pg_id, str([i.id for i in res])))
+    
+    
+    pprint(osd2pg)
+    # PG_id -> OSD
+    # OSD -> list[PG_id]
+    
 
 
 if __name__ == "__main__":

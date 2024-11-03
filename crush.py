@@ -32,7 +32,8 @@ def bfs(h: Bucket | Device, name: str) -> Bucket | Device | None:
 
 @dataclass
 class Tunables:
-    # Tunable. The default value when the CHOOSE_TRIES or CHOOSELEAF_TRIES steps are omitted in a rule.
+    # Tunable. The default value when the 
+    # CHOOSE_TRIES or CHOOSELEAF_TRIES steps are omitted in a rule.
     choose_total_tries: int
 
 
@@ -72,11 +73,10 @@ def choose_firstn(
     ftotal = 0
     for rep in range(num_replicas):
         skip_rep = False
-        r = rep + ftotal
-
         while True:
             item = cur
             repeat_descent = False
+            r = rep + ftotal
             while True:
                 repeat_bucket = False
                 bd, weight = item.choose(x, r, ws)

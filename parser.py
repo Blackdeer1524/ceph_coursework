@@ -102,6 +102,16 @@ class Weights:
     devices_ws: dict[DeviceID_T, WeightT]
 
 
+def test(r:int):
+    # w = 1 << 16
+    u = crush_hash32_3(1, 1, r)
+    u &= 0xFFFF
+    # ln = crush_ln(u) - 0x1000000000000
+    # draw = int(ln / w)
+    # return draw
+    return u
+
+
 @dataclass
 class Bucket:
     name: str
@@ -113,6 +123,24 @@ class Bucket:
     # hash: int = 0 # will NOT have hash field
 
     def choose(self, x: int, r: int, ws: Weights) -> tuple[Self | Device, WeightT]:
+        match self.alg:
+            case AlgType.uniform:
+                return self._choose_uniform(x, r, ws)
+            case AlgType.straw2:
+                return self._choose_straw2(x, r, ws)
+            case _:
+                raise NotImplementedError()
+
+    def _choose_uniform(self, x: int, r: int, ws: Weights) -> tuple[Self | Device, WeightT]:
+        s = hash((x, self.id, r))
+        c = self.children[s % len(self.children)]
+        match c:
+            case Bucket() as b:
+                return b, ws.buckets_ws[b.id]
+            case Device() as d:
+                return d, ws.devices_ws[d.id]
+    
+    def _choose_straw2(self, x: int, r: int, ws: Weights) -> tuple[Self | Device, WeightT]:
         assert self.alg == AlgType.straw2
 
         S64_MIN = -((1 << 64) - 1)
@@ -130,7 +158,10 @@ class Bucket:
             if w == 0:
                 draw = S64_MIN
             else:
-                u = crush_hash32_3(x, db.id, r)
+                # hash(*, -1, *) == hash(*, -2, *)
+                # https://stackoverflow.com/questions/10130454/why-do-1-and-2-both-hash-to-2-in-cpython
+                args = (x, abs(db.id), r)  
+                u = hash(args)
                 u &= 0xFFFF
                 ln = crush_ln(u) - 0x1000000000000
                 draw = int(ln / w)
@@ -139,7 +170,6 @@ class Bucket:
                 high = i
                 high_draw = draw
                 rw = w
-
         return self.children[high], rw  # type: ignore (len(self.children) is always > 0)
 
 
@@ -522,13 +552,15 @@ class Parser:
 
                 alg = self.read_word()
                 if alg is None:
-                    self.report_error_with_line("expected algorith type (straw2)")
+                    self.report_error_with_line("expected algorith types: uniform, straw2")
                 self.skip_n(len(alg))
 
-                if alg == "straw2":
+                if alg == "uniform":
+                    b_alg = AlgType.uniform
+                elif alg == "straw2":
                     b_alg = AlgType.straw2
                 else:
-                    self.report_error_with_line("only straw2 alg is allowed")
+                    self.report_error_with_line("only uniform & straw2 algs are allowed")
 
                 # elif alg == "list":
                 #     b_alg = AlgType.list
@@ -825,7 +857,6 @@ class Parser:
 
         class_opt = self.read_word()
         if class_opt is None:
-            self.skip_whitespace_lns_required()
             return StepTake(bucket)
 
         if class_opt != "class":
@@ -864,9 +895,9 @@ class Parser:
 
         bucket_type: (BucketT | None) | Literal["osd"] = self.read_bucket_type()
         if bucket_type is None:
-            if self.match_substr("osd"):
-                bucket_type = "osd"
-            self.report_error_with_line("expected a bucket type")
+            if not self.match_substr("osd"):
+                self.report_error_with_line("expected a bucket type")
+            bucket_type = "osd"
 
         self.skip_n(len(bucket_type))
 
