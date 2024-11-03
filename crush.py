@@ -11,6 +11,8 @@ from parser import (
     StepTake,
     Weights,
     WeightT,
+    OutOfClusterWeight,
+    UnitWeight,
 )
 
 
@@ -32,17 +34,17 @@ def bfs(h: Bucket | Device, name: str) -> Bucket | Device | None:
 
 @dataclass
 class Tunables:
-    # Tunable. The default value when the 
+    # Tunable. The default value when the
     # CHOOSE_TRIES or CHOOSELEAF_TRIES steps are omitted in a rule.
     choose_total_tries: int
 
 
 def is_out(weight: WeightT, item: int, x: int) -> bool:
-    if weight >= 0x10000:
+    if weight >= UnitWeight:
         return False
-    if weight == 0:
+    if weight == OutOfClusterWeight:
         return True
-    if crush_hash_2(x, item) & 0xFFFF < weight:
+    if crush_hash_2(x, item):
         return False
     return True
 

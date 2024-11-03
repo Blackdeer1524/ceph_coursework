@@ -21,7 +21,7 @@ rule: "rule" <rulename> {
 """
 
 import sys
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import Enum, StrEnum, auto
 from typing import Any, Generator, Literal, NewType, NoReturn, Optional, Self
 
@@ -74,14 +74,45 @@ BucketT.BUCKETS_HIERARCHY: dict[BucketT, int] = {  # type: ignore
 
 DeviceID_T = NewType("DeviceID_T", int)  # type invariant: always > 0
 BucketID_T = NewType("BucketID_T", int)  # type invariant: always < 0
-WeightT = NewType("WeightT", int)  # 16.16 fixed point float number
+# WeightT = NewType("WeightT", int)  # 16.16 fixed point float number
 
 
-@dataclass()
+class WeightT:
+    def __init__(self, w: float):
+        self.value = int(w * (1 << 16))
+
+    def __repr__(self) -> str:
+        if self.value == 0:
+            return "OutOfCluster"
+        return str(self.value >> 16)
+
+    def __lt__(self, other: Self) -> bool:
+        return self.value < other.value
+
+    def __le__(self, other: Self) -> bool:
+        return self.value <= other.value
+
+    def __gt__(self, other: Self) -> bool:
+        return self.value > other.value
+    
+    def __ge__(self, other: Self) -> bool:
+        return self.value >= other.value
+
+    def __eq__(self, other: Any) -> bool:
+        if not isinstance(other, WeightT):
+            raise NotImplementedError()
+        return self.value == other.value
+
+
+OutOfClusterWeight = WeightT(0.0)
+UnitWeight = WeightT(1.0)
+
+
+@dataclass
 class Device:
     id: DeviceID_T
     device_class: str | None = None
-
+    
 
 class AlgType(Enum):
     uniform = auto()
@@ -100,16 +131,6 @@ class Straw2Arg:
 class Weights:
     buckets_ws: dict[BucketID_T, WeightT]
     devices_ws: dict[DeviceID_T, WeightT]
-
-
-def test(r:int):
-    # w = 1 << 16
-    u = crush_hash32_3(1, 1, r)
-    u &= 0xFFFF
-    # ln = crush_ln(u) - 0x1000000000000
-    # draw = int(ln / w)
-    # return draw
-    return u
 
 
 @dataclass
@@ -131,7 +152,9 @@ class Bucket:
             case _:
                 raise NotImplementedError()
 
-    def _choose_uniform(self, x: int, r: int, ws: Weights) -> tuple[Self | Device, WeightT]:
+    def _choose_uniform(
+        self, x: int, r: int, ws: Weights
+    ) -> tuple[Self | Device, WeightT]:
         s = hash((x, self.id, r))
         c = self.children[s % len(self.children)]
         match c:
@@ -139,8 +162,10 @@ class Bucket:
                 return b, ws.buckets_ws[b.id]
             case Device() as d:
                 return d, ws.devices_ws[d.id]
-    
-    def _choose_straw2(self, x: int, r: int, ws: Weights) -> tuple[Self | Device, WeightT]:
+
+    def _choose_straw2(
+        self, x: int, r: int, ws: Weights
+    ) -> tuple[Self | Device, WeightT]:
         assert self.alg == AlgType.straw2
 
         S64_MIN = -((1 << 64) - 1)
@@ -155,16 +180,16 @@ class Bucket:
                 case Bucket(id=id):
                     w = ws.buckets_ws[id]
 
-            if w == 0:
+            if w == OutOfClusterWeight:
                 draw = S64_MIN
             else:
                 # hash(*, -1, *) == hash(*, -2, *)
                 # https://stackoverflow.com/questions/10130454/why-do-1-and-2-both-hash-to-2-in-cpython
-                args = (x, abs(db.id), r)  
+                args = (x, abs(db.id), r)
                 u = hash(args)
                 u &= 0xFFFF
                 ln = crush_ln(u) - 0x1000000000000
-                draw = int(ln / w)
+                draw = int(ln / w.value)
 
             if i == 0 or high_draw < draw:
                 high = i
@@ -202,10 +227,6 @@ class Rule:
     max_size: int
 
     rules: list[StepT]
-
-
-def float2fixpoint(w: float) -> WeightT:
-    return WeightT(int(w * (2 << 16)))
 
 
 @dataclass
@@ -552,7 +573,9 @@ class Parser:
 
                 alg = self.read_word()
                 if alg is None:
-                    self.report_error_with_line("expected algorith types: uniform, straw2")
+                    self.report_error_with_line(
+                        "expected algorith types: uniform, straw2"
+                    )
                 self.skip_n(len(alg))
 
                 if alg == "uniform":
@@ -560,7 +583,9 @@ class Parser:
                 elif alg == "straw2":
                     b_alg = AlgType.straw2
                 else:
-                    self.report_error_with_line("only uniform & straw2 algs are allowed")
+                    self.report_error_with_line(
+                        "only uniform & straw2 algs are allowed"
+                    )
 
                 # elif alg == "list":
                 #     b_alg = AlgType.list
@@ -672,7 +697,7 @@ class Parser:
         self.skip_n(len(item_name))
         self.skip_whitespace_to_token_this_line()
 
-        weight: int | None = None
+        weight: WeightT | None = None
         while True:
             key = self.read_word()
             if key is None:
@@ -689,7 +714,7 @@ class Parser:
                 w = self.read_float()
                 if w is None:
                     self.report_error_with_line("expected a float number")
-                weight = float2fixpoint(float(w))
+                weight = WeightT(float(w))
 
                 self.skip_n(len(w))
                 self.skip_whitespace_to_token_this_line()
@@ -838,7 +863,7 @@ class Parser:
                     self.report_error_with_line("unexpected step type")
 
             self.skip_whitespace_lns_required()
-        
+
         if len(rules) == 0:
             self.report_error_with_line("rule with no steps")
         elif not isinstance(rules[-1], StepEmit):
