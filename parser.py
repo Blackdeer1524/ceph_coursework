@@ -20,14 +20,22 @@ rule: "rule" <rulename> {
 }
 """
 
+import random
 import sys
 from dataclasses import dataclass, field
 from enum import Enum, StrEnum, auto
-from typing import Any, Generator, Literal, NewType, NoReturn, Optional, Self
+from typing import (
+    Any,
+    Generator,
+    Literal,
+    NewType,
+    NoReturn,
+    Optional,
+    Self,
+)
 
 import platform
 
-from hashing import crush_hash32_3, crush_ln
 
 assert platform.system() == "Linux", "Systems other than GNU/Linux are NOT supported"
 
@@ -57,7 +65,7 @@ class BucketT(StrEnum):
         return BucketT.BUCKETS_HIERARCHY[self] > BucketT.BUCKETS_HIERARCHY[value]  # type: ignore
 
 
-BucketT.BUCKETS_HIERARCHY: dict[BucketT, int] = {  # type: ignore
+BucketT.BUCKETS_HIERARCHY: dict[BucketT | Literal["osd"], int] = {  # type: ignore
     "osd": 0,
     BucketT.host: 1,
     BucketT.chassis: 2,
@@ -74,45 +82,32 @@ BucketT.BUCKETS_HIERARCHY: dict[BucketT, int] = {  # type: ignore
 
 DeviceID_T = NewType("DeviceID_T", int)  # type invariant: always > 0
 BucketID_T = NewType("BucketID_T", int)  # type invariant: always < 0
-# WeightT = NewType("WeightT", int)  # 16.16 fixed point float number
-
-
-class WeightT:
-    def __init__(self, w: float):
-        self.value = int(w * (1 << 16))
-
-    def __repr__(self) -> str:
-        if self.value == 0:
-            return "OutOfCluster"
-        return str(self.value >> 16)
-
-    def __lt__(self, other: Self) -> bool:
-        return self.value < other.value
-
-    def __le__(self, other: Self) -> bool:
-        return self.value <= other.value
-
-    def __gt__(self, other: Self) -> bool:
-        return self.value > other.value
-    
-    def __ge__(self, other: Self) -> bool:
-        return self.value >= other.value
-
-    def __eq__(self, other: Any) -> bool:
-        if not isinstance(other, WeightT):
-            raise NotImplementedError()
-        return self.value == other.value
-
+WeightT = NewType("WeightT", float)
 
 OutOfClusterWeight = WeightT(0.0)
 UnitWeight = WeightT(1.0)
 
 
 @dataclass
-class Device:
+class DeviceInfo:
     id: DeviceID_T
     device_class: str | None = None
-    
+
+
+@dataclass
+class Device:
+    info: DeviceInfo
+    _weight: WeightT
+    _parent: "Bucket" = field(repr=False)
+
+    @property
+    def weight(self):
+        return self._weight
+
+    def update_weight(self, w: WeightT) -> None:
+        self._parent._update_weight(w - self._weight)  # type: ignore (Device is a friend of the Bucket class)
+        self._weight = w
+
 
 class AlgType(Enum):
     uniform = auto()
@@ -122,80 +117,51 @@ class AlgType(Enum):
 
 
 @dataclass
-class Straw2Arg:
-    weights: list[int]
-    ids: list[int]
-
-
-@dataclass
-class Weights:
-    buckets_ws: dict[BucketID_T, WeightT]
-    devices_ws: dict[DeviceID_T, WeightT]
-
-
-@dataclass
 class Bucket:
     name: str
     type: BucketT
     id: BucketID_T
-    # NOTE: can implement device class hierarchy using dict[device_class, list[Self | tuple[Device, int]]]
-    children: list[Self | Device]
     alg: AlgType  # actually AlgType.straw2
     # hash: int = 0 # will NOT have hash field
+    weight: WeightT = OutOfClusterWeight
+    children: list[Self | Device] = field(default_factory=list)
+    _parent: Self | None = field(init=False, default=None, repr=False)
 
-    def choose(self, x: int, r: int, ws: Weights) -> tuple[Self | Device, WeightT]:
+    # O(HierarchyHeight) weight update
+    def _update_weight(self, delta: float) -> None:
+        self.weight += delta  # type: ignore
+        if self._parent is not None:
+            self._parent._update_weight(delta)
+
+    def update_subtree_weights(self) -> None:
+        self.weight = OutOfClusterWeight
+        for c in self.children:
+            match c:
+                case Bucket() as b:
+                    b.update_subtree_weights()
+                    self.weight += b.weight
+                case Device() as d:
+                    self.weight += d.weight
+
+    def choose(self, x: int, r: int) -> Self | Device:
         match self.alg:
             case AlgType.uniform:
-                return self._choose_uniform(x, r, ws)
+                return self._choose_uniform(x, r)
             case AlgType.straw2:
-                return self._choose_straw2(x, r, ws)
+                return self._choose_straw2(x, r)
             case _:
                 raise NotImplementedError()
 
-    def _choose_uniform(
-        self, x: int, r: int, ws: Weights
-    ) -> tuple[Self | Device, WeightT]:
-        s = hash((x, self.id, r))
-        c = self.children[s % len(self.children)]
-        match c:
-            case Bucket() as b:
-                return b, ws.buckets_ws[b.id]
-            case Device() as d:
-                return d, ws.devices_ws[d.id]
+    def _choose_uniform(self, x: int, r: int) -> Self | Device:
+        # hash(*, -1, *) == hash(*, -2, *)
+        # https://stackoverflow.com/questions/10130454/why-do-1-and-2-both-hash-to-2-in-cpython
+        s = hash((x, abs(self.id), r))
+        return self.children[s % len(self.children)]
 
-    def _choose_straw2(
-        self, x: int, r: int, ws: Weights
-    ) -> tuple[Self | Device, WeightT]:
-        assert self.alg == AlgType.straw2
-
-        S64_MIN = -((1 << 64) - 1)
-
-        high_draw = 0
-        high = 0
-        for i in range(len(self.children)):
-            db = self.children[i]
-            match db:
-                case Device(id=id):
-                    w = ws.devices_ws[id]
-                case Bucket(id=id):
-                    w = ws.buckets_ws[id]
-
-            if w == OutOfClusterWeight:
-                draw = S64_MIN
-            else:
-                # hash(*, -1, *) == hash(*, -2, *)
-                # https://stackoverflow.com/questions/10130454/why-do-1-and-2-both-hash-to-2-in-cpython
-                args = (x, abs(db.id), r)
-                u = hash(args)
-                u &= 0xFFFF
-                ln = crush_ln(u) - 0x1000000000000
-                draw = int(ln / w.value)
-
-            if i == 0 or high_draw < draw:
-                high = i
-                high_draw = draw
-                rw = w
-        return self.children[high], rw  # type: ignore (len(self.children) is always > 0)
+    def _choose_straw2(self, x: int, r: int) -> Self | Device:
+        random.seed(hash((x, abs(self.id), r)))
+        res = random.choices(self.children, [c.weight for c in self.children])
+        return res[0]
 
 
 @dataclass
@@ -232,7 +198,7 @@ class Rule:
 @dataclass
 class ParserResult:
     root: Bucket
-    ws: Weights
+    devices: dict[DeviceID_T, Device]
     rules: list[Rule]
 
 
@@ -255,8 +221,8 @@ class Parser:
 
         root_node: Optional[Bucket] = None
 
-        ws = Weights({}, {})
-        for b, b_ws in self.parse_buckets(seen_devices):
+        devices: dict[DeviceID_T, Device] = {}
+        for b, b_devices in self.parse_buckets(seen_devices):
             buckets.append(b)
             seen_buckets.add(b.name)
 
@@ -267,9 +233,7 @@ class Parser:
                     )
                 root_node = b
 
-            ws.buckets_ws.update(b_ws.buckets_ws)
-            ws.devices_ws.update(b_ws.devices_ws)
-
+            devices.update(b_devices)
         if root_node is None:
             self.report_error_with_line("no root node found")
 
@@ -290,7 +254,9 @@ class Parser:
             self.report_error("found disconected nodes: " + ",".join(seen_buckets_c))
 
         rules = list(self.parse_rules(seen_buckets))
-        return ParserResult(root_node, ws, rules)
+        root_node.update_subtree_weights()
+
+        return ParserResult(root_node, devices, rules)
 
     def skip_n(self, n: int) -> None:
         self.advance(n)
@@ -416,7 +382,7 @@ class Parser:
             self.report_error_with_line("expected a blank space")
         self.advance(new - self.cursor)
 
-    def parse_devices(self) -> Generator[Device, None, None]:
+    def parse_devices(self) -> Generator[DeviceInfo, None, None]:
         device_nums: set[str] = set()
         seen_ids: set[str] = set()
         while True:
@@ -459,7 +425,7 @@ class Parser:
             self.skip_whitespace_to_token_this_line()
 
             if not self.match_substr("class"):
-                yield Device(DeviceID_T(int(osd_id)))
+                yield DeviceInfo(DeviceID_T(int(osd_id)))
                 continue
 
             self.skip_n(len("class"))
@@ -468,12 +434,12 @@ class Parser:
             if class_name is None:
                 self.report_error_with_line("expected a device class")
             self.skip_n(len(class_name))
-            yield Device(DeviceID_T(int(osd_id)), class_name)
+            yield DeviceInfo(DeviceID_T(int(osd_id)), class_name)
             self.skip_whitespace_lns_required()
 
     def parse_buckets(
-        self, seen_devices: dict[str, Device]
-    ) -> Generator[tuple[Bucket, Weights], None, None]:
+        self, seen_devices: dict[str, DeviceInfo]
+    ) -> Generator[tuple[Bucket, dict[DeviceID_T, Device]], None, None]:
         seen_ids: set[str] = set()
         seen_buckets: dict[str, Bucket] = {}
         child2parent: dict[str, str] = {}
@@ -500,7 +466,7 @@ class Parser:
             self.skip_n(len(bucket_name))
             self.skip_whitespace_to_token_this_line()
 
-            b, ws = self.parse_bucket_block(
+            b, devices = self.parse_bucket_block(
                 bucket_name,
                 bucket_type,
                 seen_devices,
@@ -510,18 +476,18 @@ class Parser:
             )
             seen_buckets[b.name] = b
 
-            yield b, ws
+            yield b, devices
             self.skip_whitespace_lns_required()
 
     def parse_bucket_block(
         self,
         bucket_name: str,
         bucket_type: BucketT,
-        seen_devices: dict[str, Device],
+        seen_devices: dict[str, DeviceInfo],
         seen_buckets: dict[str, Bucket],
         child2parent: dict[str, str],
         seen_ids: set[str],
-    ) -> tuple[Bucket, Weights]:
+    ) -> tuple[Bucket, dict[DeviceID_T, Device]]:
         if not self.match_substr("{"):
             self.report_error_with_line("expected a bucket block start")
         self.skip_n(1)
@@ -620,17 +586,19 @@ class Parser:
                 if b_hash is None:
                     b_hash = 0
 
-                items, ws = self.parse_bucket_items(
-                    bucket_name, bucket_type, seen_devices, seen_buckets, child2parent
+                res = Bucket(bucket_name, bucket_type, b_id, b_alg)
+                items = self.parse_bucket_items(
+                    res, seen_devices, seen_buckets, child2parent
                 )
+                res.children = items
 
                 if not self.match_substr("}"):
                     self.report_error_with_line("expected a bucket block end")
                 self.skip_n(1)
 
                 return (
-                    Bucket(bucket_name, bucket_type, b_id, items, b_alg),
-                    ws,
+                    res,
+                    {i.info.id: i for i in items if isinstance(i, Device)},
                 )
             else:
                 self.report_error_with_line("unknown field")
@@ -638,38 +606,31 @@ class Parser:
 
     def parse_bucket_items(
         self,
-        parent: str,
-        parent_type: BucketT,
-        seen_devices: dict[str, Device],
+        parent: Bucket,
+        seen_devices: dict[str, DeviceInfo],
         seen_buckets: dict[str, Bucket],
         child2parent: dict[str, str],
-    ) -> tuple[list[Bucket | Device], Weights]:
+    ) -> list[Bucket | Device]:
         res: list[Bucket | Device] = []
-        buckets_weights: dict[BucketID_T, WeightT] = {}
-        devices_weights: dict[DeviceID_T, WeightT] = {}
         while True:
             item_res = self.parse_bucket_item(
-                parent, parent_type, seen_buckets, seen_devices, child2parent
+                parent, seen_buckets, seen_devices, child2parent
             )
             match item_res:
-                case Bucket(id=id), w:
-                    buckets_weights[id] = w
-                case Device(id=id), w:
-                    devices_weights[id] = w
+                case Bucket() | Device():
+                    res.append(item_res)
+                    self.skip_whitespace_lns_required()
                 case None:
                     break
-            res.append(item_res[0])
-            self.skip_whitespace_lns_required()
-        return res, Weights(buckets_weights, devices_weights)
+        return res
 
     def parse_bucket_item(
         self,
-        parent: str,
-        parent_type: BucketT,
+        parent: Bucket,
         seen_buckets: dict[str, Bucket],
-        seen_devices: dict[str, Device],
+        seen_devices: dict[str, DeviceInfo],
         child2parent: dict[str, str],
-    ) -> tuple[Bucket | Device, WeightT] | None:
+    ) -> (Bucket | Device) | None:
         item_decl = self.read_word()
         if item_decl != "item":
             if self.match_substr("}"):
@@ -682,17 +643,19 @@ class Parser:
         if item_name is None:
             self.report_error_with_line("expected an item name")
 
+        weight_is_requried = True
         if (b := seen_buckets.get(item_name)) is not None:
-            if b.type >= parent_type:
+            if b.type >= parent.type:
                 self.report_error_with_line(
-                    f"hierarchy violation: {item_name}({b.type}) is a child of {parent}({parent_type})"
+                    f"hierarchy violation: {item_name}({b.type}) is a child of {parent}({parent.type})"
                 )
+            weight_is_requried = False
         elif item_name not in seen_devices:
             self.report_error_with_line("unknown item")
 
         if (p := child2parent.get(item_name)) is not None:
             self.report_error_with_line(f"item already registered at {p}")
-        child2parent[item_name] = parent
+        child2parent[item_name] = parent.name
 
         self.skip_n(len(item_name))
         self.skip_whitespace_to_token_this_line()
@@ -708,6 +671,9 @@ class Parser:
                 self.report_error_with_line("bad field name")
 
             if key == "weight":
+                if not weight_is_requried:
+                    self.report_error_with_line("can't assign weight to a bucket")
+
                 self.skip_n(len(key))
                 self.skip_whitespace_to_token_this_line()
 
@@ -721,12 +687,13 @@ class Parser:
             else:
                 self.report_error_with_line("unexpected attribute")
 
-        if weight is None:
+        if weight_is_requried and weight is None:
             self.report_error_with_line("no weight was declared")
 
         if (b := seen_buckets.get(item_name)) is not None:
-            return b, weight
-        return seen_devices[item_name], weight
+            return b
+        assert weight is not None
+        return Device(seen_devices[item_name], weight, parent)
 
     def parse_rules(self, seen_buckets: set[str]) -> Generator[Rule, None, None]:
         seen_ids: set[int] = set()

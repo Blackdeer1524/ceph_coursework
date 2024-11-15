@@ -6,10 +6,10 @@ from parser import (
     BucketT,
     StepChoose,
     Device,
+    DeviceInfo,
     Rule,
     StepEmit,
     StepTake,
-    Weights,
     WeightT,
     OutOfClusterWeight,
     UnitWeight,
@@ -26,8 +26,8 @@ def bfs(h: Bucket | Device, name: str) -> Bucket | Device | None:
                     return b
                 for bd in b.children:
                     q.append(bd)
-            case Device() as d:
-                if f"osd.{d.id}" == name:
+            case Device(DeviceInfo(id=id)) as d:
+                if f"osd.{id}" == name:
                     return d
     return None
 
@@ -50,13 +50,21 @@ def is_out(weight: WeightT, item: int, x: int) -> bool:
 
 
 def is_collision(out: list[Device] | list[Bucket], outpos: int, id: int) -> bool:
-    return any(o.id == id for o in out[:outpos])
+    # TODO: figure out how to pattern match on `out` directly
+    for o in out[:outpos]:
+        match o:
+            case Device(DeviceInfo(id=o_id)):
+                if o_id == id:
+                    return True
+            case Bucket(id=o_id):
+                if o_id == id:
+                    return True
+    return False
 
 
 def choose_firstn(
     x: int,
     cur: Bucket,
-    ws: Weights,
     target: BucketT | Literal["osd"],
     num_replicas: int,
     max_replicas: int,
@@ -81,7 +89,7 @@ def choose_firstn(
             r = rep + ftotal
             while True:
                 repeat_bucket = False
-                bd, weight = item.choose(x, r, ws)
+                bd = item.choose(x, r)
                 match bd:
                     case Bucket() as b:
                         if b.type != target:
@@ -101,7 +109,6 @@ def choose_firstn(
                             res = choose_firstn(
                                 x,
                                 b,
-                                ws,
                                 "osd",
                                 1,
                                 0,
@@ -120,8 +127,8 @@ def choose_firstn(
                     case Device() as d:
                         if (
                             target != "osd"
-                            or is_collision(out, outpos, d.id)
-                            or is_out(weight, d.id, x)
+                            or is_collision(out, outpos, d.info.id)
+                            or is_out(d.weight, d.info.id, x)
                         ):
                             if ftotal >= tries:
                                 skip_rep = True
@@ -149,7 +156,6 @@ def apply(
     root: Bucket,
     rule: Rule,
     pool_replicas: int,
-    ws: Weights,
     tunables: Tunables,
 ) -> list[Device] | str:
     i: list[Device | Bucket] = [root]
@@ -177,7 +183,6 @@ def apply(
                         choose_firstn(
                             x,
                             item,
-                            ws,
                             c.bucket_type,
                             s.n,
                             pool_replicas,
@@ -198,7 +203,6 @@ def apply(
                         choose_firstn(
                             x,
                             item,
-                            ws,
                             c.bucket_type,
                             s.n,
                             pool_replicas,

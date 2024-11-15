@@ -12,13 +12,19 @@ host ceph-osd-server-1 {
     id -1
     alg uniform
     item osd.0 weight 1.00
+}
+
+host ceph-osd-server-2 {
+    id -2
+    hash 0
+    alg uniform
     item osd.1 weight 1.00
     item osd.2 weight 1.00
     item osd.3 weight 1.00
 }
 
-host ceph-osd-server-2 {
-    id -2
+host ceph-osd-server-3 {
+    id -3
     hash 0
     alg uniform
     item osd.4 weight 1.00
@@ -28,10 +34,11 @@ host ceph-osd-server-2 {
 }
 
 root default{
-id -3
-    alg uniform
-    item ceph-osd-server-1 weight 4.00
-    item ceph-osd-server-2 weight 4.00
+    id -4
+    alg straw2
+    item ceph-osd-server-1 
+    item ceph-osd-server-2 
+    item ceph-osd-server-3 
 }
 
 rule cold {
