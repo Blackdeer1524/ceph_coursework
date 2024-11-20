@@ -159,8 +159,12 @@ class Bucket:
         return self.children[s % len(self.children)]
 
     def _choose_straw2(self, x: int, r: int) -> Self | Device:
+        ws = [c.weight for c in self.children]
+        if sum(ws) == 0:
+            ws[0] = UnitWeight
+            
         random.seed(hash((x, abs(self.id), r)))
-        res = random.choices(self.children, [c.weight for c in self.children])
+        res = random.choices(self.children, ws)
         return res[0]
 
 

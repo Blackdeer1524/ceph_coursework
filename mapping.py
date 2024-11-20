@@ -1,8 +1,12 @@
-from collections import defaultdict
 from dataclasses import dataclass, field
 from enum import Enum, auto
-import random
-from typing import Callable, Generator, Hashable, NewType
+from typing import (
+    Callable,
+    Hashable,
+    Iterable,
+    Iterator,
+    NewType,
+)
 from crush import Tunables, apply
 from parser import (
     Bucket,
@@ -10,13 +14,14 @@ from parser import (
     Device,
     DeviceID_T,
     Rule,
+    WeightT
 )
 
 
 @dataclass
 class Operation:
     class OpType(Enum):
-        CREATE = auto()
+        INSERT = auto()
         UPDATE = auto()
         DELETE = auto()
 
@@ -94,8 +99,14 @@ class EPeeringFailure:
     id: int
 
 
+@dataclass()
+class EMainloopInteration:
+    callback_results: list["Event"]
+
+
 EventTag = (
-    EPrimaryRecvSuccess
+    EMainloopInteration
+    | EPrimaryRecvSuccess
     | EPrimaryRecvFailure
     | EPrimaryRecvAcknowledged
     | EPrimaryReplicationFail
@@ -108,11 +119,11 @@ EventTag = (
 )
 
 
-@dataclass
+@dataclass(order=True)
 class Event:
-    tag: EventTag
+    tag: EventTag = field(compare=False)
     time: int
-    callback: Callable[[], None] | None = None
+    callback: Callable[[], None] | None = field(compare=False, default=None, repr=False)
 
 
 def test_proba(p: float, *args: Hashable) -> bool:
@@ -122,28 +133,12 @@ def test_proba(p: float, *args: Hashable) -> bool:
 
 
 class AliveIntervals:
-    def __init__(self, step: int, time_limit: int, p_die: float, p_resurrect: float):
-        self.res: list[tuple[int, int]] = []
-
-        cur_time = 0
-        old_start = 0
-        while cur_time < time_limit:
-            for cur_time in range(cur_time + step, time_limit, step):
-                if random.uniform(0, b=1) < p_die:
-                    break
-            self.res.append((old_start, cur_time))
-            for cur_time in range(cur_time + step, time_limit):
-                if random.uniform(0, 1) < p_resurrect:
-                    break
-            old_start = cur_time
+    def __init__(self, id: int, p_die: float):
+        self.id = id
+        self.p_die = p_die
 
     def check_at_time(self, t: int) -> bool:
-        for i in self.res:
-            if t < i[0]:
-                return False
-            elif i[0] <= t < i[1]:
-                return True
-        return False
+        return test_proba(self.p_die, self.id, str(t))
 
 
 @dataclass
@@ -151,7 +146,6 @@ class Context:
     current_time: int
     timestep: int
     timesteps_to_peer: int
-    time_limit: int
     # send timeout
     timeout: int
     # how much time it takes to recieve one file from user
@@ -162,30 +156,17 @@ class Context:
 
     alive_intervals_per_device: dict[DeviceID_T, AliveIntervals]
 
-    def do_time_step(self) -> "Context":
-        return Context(
-            current_time=self.current_time + self.timestep,
-            timestep=self.timestep,
-            timesteps_to_peer=self.timesteps_to_peer,
-            time_limit=self.time_limit,
-            timeout=self.timeout,
-            user_conn_speed=self.user_conn_speed,
-            conn_speed=self.conn_speed,
-            failure_proba=self.failure_proba,
-            alive_intervals_per_device=self.alive_intervals_per_device,
-        )
+    def do_time_step(self):
+        self.current_time += self.timestep
 
 
 @dataclass
 class PlacementGroup:
     id: int
     logs: dict[DeviceID_T, LogData] = field(init=False, default_factory=dict)
-    _last_sync: int = field(init=False, default=-1)
+    last_sync: int = field(init=False, default=-1)
     _maps: list[list[Device]] = field(init=False, default_factory=list)
-
-    @property
-    def last_sync(self) -> int:
-        return self._last_sync
+    is_peering: bool = field(init=False, default=False)
 
     @property
     def maps(self) -> list[list[Device]]:
@@ -198,7 +179,7 @@ class PlacementGroup:
         return False
 
     def peer(self, context: Context) -> tuple[list[list[Device]], bool]:
-        syncing_maps = self._maps[self._last_sync :]
+        syncing_maps = self._maps[self.last_sync :]
         return syncing_maps, all(
             all(
                 any(
@@ -214,7 +195,7 @@ class PlacementGroup:
 
     # UPdate, DELete, inSERT
     def updelsert(
-        self, obj_id: ObjectID_T, context: Context, op_type: Operation.OpType
+        self, context: Context, obj_id: ObjectID_T, op_type: Operation.OpType
     ) -> list[Event]:
         cur_map = self.maps[-1]
 
@@ -263,9 +244,13 @@ class PlacementGroup:
                         EReplicaRecvSuccess(obj_id, primary.info.id, d.info.id),
                         primary_write_time
                         + context.conn_speed[primary.info.id, d.info.id],
-                        lambda: self.logs[d.info.id].ops.append(
-                            Operation(obj_id, op_type)
-                        ),
+                        (
+                            lambda x: (
+                                lambda: self.logs[x.info.id].ops.append(
+                                    Operation(obj_id, op_type)
+                                )
+                            )
+                        )(d),
                     ),
                 )
                 res.append(
@@ -316,11 +301,31 @@ class PGInstance:
     last_completed: int = field(init=False, default=-1)
 
 
+class PGList:
+    def __init__(self, c: list[PlacementGroup]):
+        self._col: list[PlacementGroup] = c
+
+    def __iter__(self) -> Iterator[PlacementGroup]:
+        return iter(self._col)
+
+    def object_insert(self, context: Context, obj_id: ObjectID_T):
+        h = hash(str(obj_id)) % len(self._col)
+        self._col[h].updelsert(context, obj_id, Operation.OpType.INSERT)
+
+    def object_update(self, context: Context, obj_id: ObjectID_T):
+        h = hash(str(obj_id)) % len(self._col)
+        self._col[h].updelsert(context, obj_id, Operation.OpType.UPDATE)
+
+    def object_delete(self, context: Context, obj_id: ObjectID_T):
+        h = hash(str(obj_id)) % len(self._col)
+        self._col[h].updelsert(context, obj_id, Operation.OpType.DELETE)
+
+
 @dataclass
 class PoolParams:
     size: int  # replicas count
     min_size: int  # minimum allowed number of replicas returned by CRUSH
-    pgs: dict[int, PlacementGroup]
+    pgs: Iterable[PlacementGroup]
     # pg_count: int  # placement groups' count
 
 
@@ -330,16 +335,12 @@ def map_pg(
     tunables: Tunables,
     cfg: PoolParams,
     context: Context,
-) -> None:
+) -> list[Event]:
     events: list[Event] = []
-    for pg in cfg.pgs.values():
+    for pg in cfg.pgs:
         res = apply(pg.id, root, rule, cfg.size, tunables)
         assert not isinstance(res, str), res
-
-        # WARN: one can record a map ONLY AFTER successfull peering!!!
-        # if not pg.record_mapping(res):
-        #     continue
-        if not (len(pg.maps) > 0 and pg.maps[-1] != res):
+        if pg.is_peering or (len(pg.maps) > 0 and pg.maps[-1] == res):
             continue
 
         maps, success = pg.peer(context)
@@ -347,89 +348,75 @@ def map_pg(
         for m in maps:
             devices_used_in_peering.update((d.info.id for d in m))
 
-        peer_id = hash((pg.id, context.current_time))
+        peering_id = hash((pg.id, context.current_time))
         events.append(
             Event(
                 EPeeringStart(
-                    peer_id,
+                    peering_id,
                     pg.id,
                     list(devices_used_in_peering),
                 ),
                 context.current_time,
             )
         )
+
+        def success_wrapper(
+            inner_pg: PlacementGroup, ds: list[Device]
+        ) -> Callable[[], None]:
+            def inner():
+                inner_pg.is_peering = False
+                inner_pg.last_sync = len(inner_pg.maps)
+                inner_pg.maps.append(ds)
+
+            return inner
+
+        def fail_wrapper(inner_pg: PlacementGroup) -> Callable[[], None]:
+            def inner():
+                inner_pg.is_peering = False
+
+            return inner
+
+        pg.is_peering = True
         if success:
             events.append(
                 Event(
-                    EPeeringSuccess(peer_id),
+                    EPeeringSuccess(peering_id),
                     context.current_time + context.timestep * context.timesteps_to_peer,
-                    lambda: pg.maps.append(res),
+                    success_wrapper(pg, res),
                 )
             )
         else:
-            local_context = context
-            while True:
-                events.append(
-                    Event(
-                        EPeeringFailure(peer_id),
-                        local_context.current_time
-                        + local_context.timestep * local_context.timesteps_to_peer,
-                    )
+            events.append(
+                Event(
+                    EPeeringFailure(peering_id),
+                    context.current_time + context.timestep * context.timesteps_to_peer,
+                    fail_wrapper(pg),
                 )
-
-                for _ in range(local_context.timesteps_to_peer):
-                    local_context = local_context.do_time_step()
-
-                _, success = pg.peer(local_context)
-                if success:
-                    events.append(
-                        Event(
-                            EPeeringSuccess(peer_id),
-                            local_context.current_time
-                            + local_context.timestep * local_context.timesteps_to_peer,
-                            lambda: pg.maps.append(res),
-                        )
-                    )
+            )
+    return events
 
 
-# между итерациями генератора можно делать операции
-def mainloop(
+def get_iteration_event(
     root: Bucket,
     devices: dict[DeviceID_T, Device],
+    init_weights: dict[DeviceID_T, WeightT],
     rule: Rule,
     tunables: Tunables,
     cfg: PoolParams,
-) -> Generator[None, None, None]:
-    old_weights = {d.info.id: d.weight for d in devices.values()}
+    context: Context,
+) -> Event:
+    tag = EMainloopInteration([])
 
-    context = Context(
-        current_time=0,
-        timestep=20,
-        timesteps_to_peer=3,
-        time_limit=1000,
-        timeout=100,
-        user_conn_speed=defaultdict(lambda: 30),
-        conn_speed=defaultdict(lambda: 30),
-        failure_proba=defaultdict(lambda: 0.05),
-        alive_intervals_per_device={},
-    )
-
-    # todo: probably should be inside `tunable`
-    DEATH_PROBA = 0.05
-    RESURRECTION_PROBA = 0.30
-
-    for d in devices.values():
-        context.alive_intervals_per_device[d.info.id] = AliveIntervals(
-            context.timestep, context.time_limit, DEATH_PROBA, RESURRECTION_PROBA
-        )
-
-    while context.current_time < context.time_limit:
-        # WARN: these weight updates will probably break `map_pg` :(
+    def callback():
         for d_id, intervals in context.alive_intervals_per_device.items():
             if intervals.check_at_time(context.current_time):
-                devices[d_id].update_weight(old_weights[d_id])
+                devices[d_id].update_weight(init_weights[d_id])
             else:
                 devices[d_id].update_weight(OutOfClusterWeight)
-        map_pg(root, rule, tunables, cfg, context)
-        yield
+        tag.callback_results = map_pg(root, rule, tunables, cfg, context)
         context.do_time_step()
+        tag.callback_results.append(
+            get_iteration_event(root, devices, init_weights, rule, tunables, cfg, context)
+        )
+
+    return Event(tag, context.current_time, callback)
