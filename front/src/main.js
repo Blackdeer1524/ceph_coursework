@@ -1,7 +1,7 @@
 import "./style.css";
 import { Rect, Line } from "fabric";
 import { mapCanvas } from "./mapCanvas";
-import { drawHierarchy } from "./connection";
+import { drawHierarchy, ConnectorAllocator } from "./connection";
 
 import { Bucket } from "./connection";
 
@@ -83,23 +83,43 @@ const h = {
   ],
 };
 
-let res = drawHierarchy(null, h, [0, 0], mapCanvas);
-console.log(res["name2osd"]);
-res.name2osd.get("osd.1").addPG(123)
-res.name2osd.get("osd.1").addPG(124)
-res.name2osd.get("osd.1").addPG(125)
-res.name2osd.get("osd.1").addPG(127)
+let initGap = (mapCanvas.getWidth() - Bucket.width) / 2;
+let res = drawHierarchy(null, h, [initGap, 30], 0, mapCanvas);
+let alloc = new ConnectorAllocator(8);
 
-res.name2osd.get("osd.5").addPG(127)
-res.name2osd.get("osd.5").addPG(128)
-res.name2osd.get("osd.5").addPG(129)
-res.name2osd.get("osd.5").addPG(131)
+res.name2osd.get("osd.1").addPG(123, res.lastColOSD, alloc);
+res.name2osd.get("osd.1").addPG(124, res.lastColOSD, alloc);
+res.name2osd.get("osd.1").addPG(127, res.lastColOSD, alloc);
+res.name2osd.get("osd.1").addPG(132, res.lastColOSD, alloc);
 
-res.name2osd.get("osd.3").addPG(127)
-res.name2osd.get("osd.3").addPG(128)
-res.name2osd.get("osd.3").addPG(129)
-res.name2osd.get("osd.3").addPG(131)
+res.name2osd.get("osd.5").addPG(127, res.lastColOSD, alloc);
+res.name2osd.get("osd.5").addPG(124, res.lastColOSD, alloc);
+res.name2osd.get("osd.5").addPG(129, res.lastColOSD, alloc);
+res.name2osd.get("osd.5").addPG(131, res.lastColOSD, alloc);
 
+res.name2osd
+  .get("osd.1")
+  .connect(res.name2osd.get("osd.5"), 127, res.lastColOSD, alloc);
+res.name2osd
+  .get("osd.5")
+  .connect(res.name2osd.get("osd.1"), 124, res.lastColOSD, alloc);
+
+res.name2osd.get("osd.3").addPG(132, res.lastColOSD, alloc);
+res.name2osd.get("osd.3").addPG(133, res.lastColOSD, alloc);
+res.name2osd.get("osd.3").addPG(134, res.lastColOSD, alloc);
+res.name2osd.get("osd.3").addPG(135, res.lastColOSD, alloc);
+
+res.name2osd.get("osd.9").addPG(132);
+res.name2osd.get("osd.9").addPG(133);
+res.name2osd.get("osd.9").addPG(134);
+res.name2osd.get("osd.9").addPG(135);
+
+res.name2osd
+  .get("osd.1")
+  .connect(res.name2osd.get("osd.9"), 132, res.lastColOSD, alloc);
+res.name2osd
+  .get("osd.3")
+  .connect(res.name2osd.get("osd.9"), 133, res.lastColOSD, alloc);
 
 // https://stackoverflow.com/a/35453052
 mapCanvas.renderAll();
