@@ -40,7 +40,7 @@ export class Bucket {
       [myMidpoint, this.posY, myMidpoint, this.posY - spaceBetween / 2],
       {
         stroke: "green",
-      }
+      },
     );
 
     const middle = new Line(
@@ -52,7 +52,7 @@ export class Bucket {
       ],
       {
         stroke: "green",
-      }
+      },
     );
 
     const end = new Line(
@@ -64,7 +64,7 @@ export class Bucket {
       ],
       {
         stroke: "green",
-      }
+      },
     );
 
     this.canvas.add(start);
@@ -77,23 +77,129 @@ export class Bucket {
   }
 }
 
+const SPACE_BETWEEN_OSD_COLS = 60;
+const STEP_Y_BETWEEN = 40;
 const PGBoxHeight = 20;
 const PGBoxGap = 3;
 
-class ConnectionAllocator {
+class ConnectorAllocator {
   /**
-   * 
-   * @param {number} max 
+   * @param {number} max
    */
   constructor(max) {
+    this.limit = max;
     this.is_allocated = [];
-    for (i = 0; i < max; ++i) {
+    for (let i = 0; i < max; ++i) {
       this.is_allocated.push(false);
     }
   }
-  
-  alloc() {
 
+  /**
+   * @returns {number | null}
+   */
+  alloc() {
+    for (let i = 0; i < this.is_allocated.length; ++i) {
+      if (!this.is_allocated[i]) {
+        this.is_allocated[i] = true;
+        return i;
+      }
+    }
+    return null;
+  }
+
+  /**
+   * @param {number} i
+   */
+  free(i) {
+    if (!this.is_allocated[i]) {
+      throw Error(`double free: ${i}`);
+    }
+
+    this.is_allocated[i] = false;
+  }
+}
+
+class PG {
+  constructor(posX, posY, col, canvas) {
+    this.col = col;
+    this.canvas = canvas;
+    this.drawnObj = new Rect({
+      top: posY,
+      left: posX + PGBoxGap,
+      width: OSD.width - 2 * PGBoxGap,
+      height: PGBoxHeight,
+      fill: "pink",
+    });
+    this.canvas.add(this.drawnObj);
+
+    /**
+     * @type {Line[][]}
+     */
+    this.connects = [];
+    /**
+     * @type {PG[]}
+     */
+    this.children = [];
+  }
+
+  redraw(delta) {
+    this.canvas.remove(this.drawnObj);
+    this.drawnObj.top += delta;
+    this.canvas.add(this.drawnObj);
+
+    this.connects.forEach((path) => path.forEach((l) => this.canvas.rmeove(l)));
+    this.children.forEach((c) => this.connect(c));
+  }
+
+  /**
+   * @param {PG} child
+   * @param {OSD[]} lastColOSD
+   * @param {ConnectorAllocator} connectorAlloc
+   */
+  connect(child, lastColOSD, connectorAlloc) {
+    let res = connectorAlloc.alloc();
+    if (res === null) {
+      throw Error("couldn't allocate a connector");
+    }
+
+    let indent = SPACE_BETWEEN_OSD_COLS / connectorAlloc.limit;
+    this.children.push(child);
+
+    if (this.col <= other.col) {
+      let lastX = this.drawnObj.left + this.drawnObj.width + PGBoxGap + indent;
+      let lastY = this.drawnObj.top + this.height / 2;
+      let path = [
+        new Line(
+          [
+            this.drawnObj.left + this.drawnObj.width,
+            this.drawnObj.top + this.height / 2,
+            lastX,
+            lastY,
+          ],
+          { stroke: "red" },
+        ),
+      ];
+      let n = other.col - this.col - 1;
+      for (let i = 0; i < n; ++i) {
+        let passOSD = lastColOSD[this.col + i + 1].drawnObj;
+        path.push(new Line([lastX, lastY, lastX, passOSD.height + indent]));
+        let newX = passOSD.left + passOSD.width + indent;
+        let newY = passOSD.height + indent;
+        path.push(new Line([lastX, newY, newX, newY]));
+        lastX = newX;
+        lastY = newY;
+      }
+
+      let childMidpointY = child.drawnObj.top + child.drawnObj.height / 2;
+      path.push(new Line([lastX, lastY, lastX, childMidpointY]));
+      path.push(
+        new Line([lastX, childMidpointY, child.drawnObj.left, childMidpointY]),
+      );
+      path.forEach((c) => this.canvas.add(c));
+      this.connect.push(path);
+    } else {
+      throw Error("not implemented");
+    }
   }
 }
 
@@ -101,14 +207,16 @@ export class OSD {
   static width = 100;
   static initHeight = 60;
 
-  constructor(posX, posY, canvas) {
-    console.log("osd", [posX, posY]);
-    this.posX = posX;
-    this.posY = posY;
+  constructor(posX, posY, col, canvas) {
+    this.col = col;
     this.canvas = canvas;
 
     this.nextOSD = null;
+    /**
+     * @type {Map<string, PG>}
+     */
     this.pgs = new Map();
+    this.lastPG = null;
 
     this.drawnObj = new Rect({
       top: posY,
@@ -120,7 +228,15 @@ export class OSD {
     this.canvas.add(this.drawnObj);
   }
 
-  connect(other, pg_id, connectAllocInfo) {}
+  /**
+   *
+   * @param {OSD} other
+   * @param {number} pg_id
+   * @param {ConnectorAllocator} connectAllocInfo
+   */
+  connect(other, pg_id, connectAllocInfo) {
+    this.pgs;
+  }
 
   /**
    *
@@ -134,21 +250,13 @@ export class OSD {
    * @param {number} id
    */
   addPG(id) {
-    let top = this.posY + PGBoxGap;
-    if (this.pgs.length > 0) {
-      top = this.pgs[this.pgs.length - 1].top + PGBoxHeight + PGBoxGap;
-      prin;
+    let top = this.drawnObj.top + PGBoxGap;
+    if (this.lastPG !== null) {
+      top = this.lastPG.top + this.lastPG.height + PGBoxGap;
     }
-
-    let newPgBox = new Rect({
-      top: top,
-      left: this.posX + PGBoxGap,
-      width: OSD.width - 2 * PGBoxGap,
-      height: PGBoxHeight,
-      fill: "pink",
-    });
-    this.pgs.push(newPgBox);
-    this.redraw(this.posY);
+    this.lastPG = new PG(this.drawnObj.left, top, this.col, this.canvas);
+    this.pgs.push(this.lastPG);
+    this.redraw(this.drawnObj.top);
   }
 
   /**
@@ -157,17 +265,15 @@ export class OSD {
   redraw(newY) {
     this.canvas.remove(this.drawnObj);
     this.pgs.forEach((c) => {
-      this.canvas.remove(c);
-      c.top += newY - this.posY;
+      c.redraw(newY - this.drawnObj.top);
     });
     const newHeight = Math.max(
       OSD.initHeight,
-      this.pgs.length * PGBoxHeight + (this.pgs.length + 1) * 3
+      this.pgs.length * PGBoxHeight + (this.pgs.length + 1) * 3,
     );
-    this.posY = newY;
     this.drawnObj = new Rect({
-      top: this.posY,
-      left: this.posX,
+      top: newY,
+      left: this.drawnObj.left,
       width: OSD.width,
       height: newHeight,
       fill: "blue",
@@ -177,7 +283,7 @@ export class OSD {
       this.canvas.add(c);
     });
 
-    this.nextOSD?.redraw(this.posY + newHeight + STEP_Y_BETWEEN);
+    this.nextOSD?.redraw(newY + newHeight + STEP_Y_BETWEEN);
   }
 }
 
@@ -194,9 +300,6 @@ export class OSD {
  * @property {number} children_width
  * @property {BucketDesc[] | OSDDesc[]} children
  */
-
-const SPACE_BETWEEN_OSD_COLS = 60;
-const STEP_Y_BETWEEN = 40;
 
 /**
  * @param {BucketDesc} root
@@ -265,7 +368,7 @@ export function drawHierarchy(parent, root, pos, canvas) {
         n,
         child,
         [leftBound + indent, childY],
-        canvas
+        canvas,
       );
       subtreeM.forEach((value, key) => {
         m.set(key, value);
