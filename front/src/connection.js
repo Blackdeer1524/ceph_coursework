@@ -88,7 +88,7 @@ export class ConnectorAllocator {
   constructor(max) {
     this.limit = max;
     this.is_allocated = [];
-    this.colors = ["red", "purple", "orange", "blue", "green"];
+    this.colors = ["#d53e4f", "#f46d43", "#fdae61", "#fee08b", "#e6f598", "#abdda4", "#66c2a5", "#3288bd"];
     for (let i = 0; i < max; ++i) {
       this.is_allocated.push(false);
     }
@@ -124,8 +124,13 @@ class PG {
     this.id = id;
     this.col = col;
     this.canvas = canvas;
-    this.connector = null;
+
+    this.connectorID = null;
     this.connectorColor = null;
+    /**
+     * @type {PG[]}
+     */
+    this.children = [];
 
     this.drawnObj = new Rect({
       top: posY,
@@ -150,7 +155,6 @@ class PG {
     /**
      * @type {PG[]}
      */
-    this.children = [];
   }
 
   redraw(delta, lastColOSD, alloc) {
@@ -176,17 +180,17 @@ class PG {
    * @param {ConnectorAllocator} connectorAlloc
    */
   connect(child, lastColOSD, connectorAlloc) {
-    if (this.connector === null) {
+    if (this.connectorID === null) {
       let res = connectorAlloc.alloc();
       if (res === null) {
         throw Error("couldn't allocate a connector");
       }
-      [this.connector, this.connectorColor] = res;
+      [this.connectorID, this.connectorColor] = res;
     }
 
     const minIndent = 5
     let indent = minIndent + 
-      this.connector *
+      this.connectorID *
         ((SPACE_BETWEEN_OSD_COLS - minIndent) / (connectorAlloc.limit + 1));
     this.children.push(child);
 

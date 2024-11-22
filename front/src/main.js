@@ -87,39 +87,51 @@ let initGap = (mapCanvas.getWidth() - Bucket.width) / 2;
 let res = drawHierarchy(null, h, [initGap, 30], 0, mapCanvas);
 let alloc = new ConnectorAllocator(8);
 
-res.name2osd.get("osd.1").addPG(123, res.lastColOSD, alloc);
-res.name2osd.get("osd.1").addPG(124, res.lastColOSD, alloc);
-res.name2osd.get("osd.1").addPG(127, res.lastColOSD, alloc);
-res.name2osd.get("osd.1").addPG(132, res.lastColOSD, alloc);
+res.name2osd.get("osd.1").addPG(1, res.lastColOSD, alloc);
+res.name2osd.get("osd.1").addPG(2, res.lastColOSD, alloc);
+res.name2osd.get("osd.1").addPG(3, res.lastColOSD, alloc);
+res.name2osd.get("osd.1").addPG(4, res.lastColOSD, alloc);
+res.name2osd.get("osd.1").addPG(5, res.lastColOSD, alloc);
+res.name2osd.get("osd.1").addPG(6, res.lastColOSD, alloc);
+res.name2osd.get("osd.1").addPG(7, res.lastColOSD, alloc);
+res.name2osd.get("osd.1").addPG(8, res.lastColOSD, alloc);
 
-res.name2osd.get("osd.5").addPG(127, res.lastColOSD, alloc);
-res.name2osd.get("osd.5").addPG(124, res.lastColOSD, alloc);
-res.name2osd.get("osd.5").addPG(129, res.lastColOSD, alloc);
-res.name2osd.get("osd.5").addPG(131, res.lastColOSD, alloc);
 
-res.name2osd
-  .get("osd.1")
-  .connect(res.name2osd.get("osd.5"), 127, res.lastColOSD, alloc);
-res.name2osd
-  .get("osd.5")
-  .connect(res.name2osd.get("osd.1"), 124, res.lastColOSD, alloc);
+res.name2osd.get("osd.3").addPG(1, res.lastColOSD, alloc);
+res.name2osd.get("osd.3").addPG(2, res.lastColOSD, alloc);
+res.name2osd.get("osd.3").addPG(3, res.lastColOSD, alloc);
+res.name2osd.get("osd.3").addPG(4, res.lastColOSD, alloc);
+res.name2osd.get("osd.3").addPG(5, res.lastColOSD, alloc);
+res.name2osd.get("osd.3").addPG(6, res.lastColOSD, alloc);
+res.name2osd.get("osd.3").addPG(7, res.lastColOSD, alloc);
+res.name2osd.get("osd.3").addPG(8, res.lastColOSD, alloc);
 
-res.name2osd.get("osd.3").addPG(132, res.lastColOSD, alloc);
-res.name2osd.get("osd.3").addPG(133, res.lastColOSD, alloc);
-res.name2osd.get("osd.3").addPG(134, res.lastColOSD, alloc);
-res.name2osd.get("osd.3").addPG(135, res.lastColOSD, alloc);
+res.name2osd.get("osd.5").addPG(8, res.lastColOSD, alloc);
+res.name2osd.get("osd.5").addPG(1, res.lastColOSD, alloc);
+res.name2osd.get("osd.5").addPG(7, res.lastColOSD, alloc);
+res.name2osd.get("osd.5").addPG(2, res.lastColOSD, alloc);
+res.name2osd.get("osd.5").addPG(6, res.lastColOSD, alloc);
+res.name2osd.get("osd.5").addPG(3, res.lastColOSD, alloc);
+res.name2osd.get("osd.5").addPG(5, res.lastColOSD, alloc);
+res.name2osd.get("osd.5").addPG(4, res.lastColOSD, alloc);
 
-res.name2osd.get("osd.9").addPG(132);
-res.name2osd.get("osd.9").addPG(133);
-res.name2osd.get("osd.9").addPG(134);
-res.name2osd.get("osd.9").addPG(135);
+res.name2osd .get("osd.5") .connect(res.name2osd.get("osd.1"), 1, res.lastColOSD, alloc);
+res.name2osd .get("osd.5") .connect(res.name2osd.get("osd.1"), 2, res.lastColOSD, alloc);
+res.name2osd .get("osd.5") .connect(res.name2osd.get("osd.1"), 3, res.lastColOSD, alloc);
+res.name2osd .get("osd.5") .connect(res.name2osd.get("osd.1"), 4, res.lastColOSD, alloc);
+res.name2osd .get("osd.5") .connect(res.name2osd.get("osd.1"), 5, res.lastColOSD, alloc);
+res.name2osd .get("osd.5") .connect(res.name2osd.get("osd.1"), 6, res.lastColOSD, alloc);
+res.name2osd .get("osd.5") .connect(res.name2osd.get("osd.1"), 7, res.lastColOSD, alloc);
+res.name2osd .get("osd.5") .connect(res.name2osd.get("osd.1"), 8, res.lastColOSD, alloc);
 
-res.name2osd
-  .get("osd.1")
-  .connect(res.name2osd.get("osd.9"), 132, res.lastColOSD, alloc);
-res.name2osd
-  .get("osd.3")
-  .connect(res.name2osd.get("osd.9"), 133, res.lastColOSD, alloc);
+res.name2osd .get("osd.5") .connect(res.name2osd.get("osd.3"), 1, res.lastColOSD, alloc);
+res.name2osd .get("osd.5") .connect(res.name2osd.get("osd.3"), 2, res.lastColOSD, alloc);
+res.name2osd .get("osd.5") .connect(res.name2osd.get("osd.3"), 3, res.lastColOSD, alloc);
+res.name2osd .get("osd.5") .connect(res.name2osd.get("osd.3"), 4, res.lastColOSD, alloc);
+res.name2osd .get("osd.5") .connect(res.name2osd.get("osd.3"), 5, res.lastColOSD, alloc);
+res.name2osd .get("osd.5") .connect(res.name2osd.get("osd.3"), 6, res.lastColOSD, alloc);
+res.name2osd .get("osd.5") .connect(res.name2osd.get("osd.3"), 7, res.lastColOSD, alloc);
+res.name2osd .get("osd.5") .connect(res.name2osd.get("osd.3"), 8, res.lastColOSD, alloc);
 
 // https://stackoverflow.com/a/35453052
 mapCanvas.renderAll();
