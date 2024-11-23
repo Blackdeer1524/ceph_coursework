@@ -24,6 +24,7 @@ export class PrimaryRegistry {
     if (primary === undefined) {
       throw Error(`no primary found: ${pgId}`);
     }
+    this.registry.delete(pgId)
     primary.removeConnectors();
   }
 }
@@ -121,6 +122,7 @@ export class Bucket {
 
 const SPACE_BETWEEN_OSD_COLS = 60;
 const STEP_Y_BETWEEN = 40;
+export const PGCout = 20
 const PGBoxHeight = 20;
 const PGBoxGap = 3;
 
@@ -709,7 +711,7 @@ export function drawHierarchy(
     let prevOSD = null;
 
     let osd = undefined;
-    let bucketPgConnAlloc = new ConnectorAllocator(8, false);
+    let bucketPgConnAlloc = new ConnectorAllocator(PGCout, false);
     for (let child of root.children) {
       osd = new OSD(
         b,

@@ -4,6 +4,7 @@ import {
   drawHierarchy,
   ConnectorAllocator,
   PrimaryRegistry,
+  PGCout,
 } from "./connection";
 
 import { Bucket } from "./connection";
@@ -88,14 +89,8 @@ const h = {
 
 let initGap = (mapCanvas.getWidth() - Bucket.width) / 2;
 let registry = new PrimaryRegistry();
-let alloc = new ConnectorAllocator(8);
+let alloc = new ConnectorAllocator(PGCout);
 let res = drawHierarchy(null, h, [initGap, 30], mapCanvas, [], registry, alloc);
-
-
-
-
-
-
 
 res.get("osd.1").addPG(1);
 res.get("osd.1").addPG(2);
@@ -105,7 +100,6 @@ res.get("osd.1").addPG(5);
 res.get("osd.1").addPG(6);
 res.get("osd.1").addPG(7);
 res.get("osd.1").addPG(8);
-
 
 res.get("osd.6").addPG(1);
 res.get("osd.6").addPG(2);
@@ -125,7 +119,6 @@ res.get("osd.10").addPG(6);
 res.get("osd.10").addPG(7);
 res.get("osd.10").addPG(8);
 
-
 res.get("osd.6").connect(res.get("osd.1"), 1);
 res.get("osd.6").connect(res.get("osd.1"), 2);
 res.get("osd.6").connect(res.get("osd.1"), 3);
@@ -143,6 +136,10 @@ res.get("osd.6").connect(res.get("osd.10"), 5);
 res.get("osd.6").connect(res.get("osd.10"), 6);
 res.get("osd.6").connect(res.get("osd.10"), 7);
 res.get("osd.6").connect(res.get("osd.10"), 8);
+
+registry.remove(1);
+res.get("osd.10").connect(res.get("osd.6"), 1);
+res.get("osd.10").connect(res.get("osd.1"), 1);
 
 // https://stackoverflow.com/a/35453052
 mapCanvas.renderAll();
