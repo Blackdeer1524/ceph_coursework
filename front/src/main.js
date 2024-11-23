@@ -123,19 +123,19 @@ res.get("osd.6").connect(res.get("osd.1"), 1);
 res.get("osd.6").connect(res.get("osd.1"), 2);
 res.get("osd.6").connect(res.get("osd.1"), 3);
 res.get("osd.6").connect(res.get("osd.1"), 4);
-res.get("osd.6").connect(res.get("osd.1"), 5);
-res.get("osd.6").connect(res.get("osd.1"), 6);
-res.get("osd.6").connect(res.get("osd.1"), 7);
-res.get("osd.6").connect(res.get("osd.1"), 8);
+res.get("osd.1").connect(res.get("osd.6"), 5);
+res.get("osd.1").connect(res.get("osd.6"), 6);
+res.get("osd.1").connect(res.get("osd.6"), 7);
+res.get("osd.1").connect(res.get("osd.6"), 8);
 
 res.get("osd.6").connect(res.get("osd.10"), 1);
 res.get("osd.6").connect(res.get("osd.10"), 2);
 res.get("osd.6").connect(res.get("osd.10"), 3);
 res.get("osd.6").connect(res.get("osd.10"), 4);
-res.get("osd.6").connect(res.get("osd.10"), 5);
-res.get("osd.6").connect(res.get("osd.10"), 6);
-res.get("osd.6").connect(res.get("osd.10"), 7);
-res.get("osd.6").connect(res.get("osd.10"), 8);
+res.get("osd.1").connect(res.get("osd.10"), 5);
+res.get("osd.1").connect(res.get("osd.10"), 6);
+res.get("osd.1").connect(res.get("osd.10"), 7);
+res.get("osd.1").connect(res.get("osd.10"), 8);
 
 registry.remove(1);
 res.get("osd.10").connect(res.get("osd.6"), 1);

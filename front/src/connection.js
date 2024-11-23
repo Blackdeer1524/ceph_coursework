@@ -394,14 +394,14 @@ class PG {
       for (let i = 0; i < n; ++i) {
         let passOSD = this.lastColOSD[this.col + i + 1].drawnObj;
         let newY =
-          passOSD.top + passOSD.height + SPACE_BETWEEN_OSD_COLS - indent;
+          passOSD.top + passOSD.height + indent;
         path.push(
           new Line([lastX, lastY, lastX, newY], {
             stroke: this.connectorColor,
           }),
         );
         let newX =
-          passOSD.left + passOSD.width + SPACE_BETWEEN_OSD_COLS - indent;
+          passOSD.left + passOSD.width +  indent;
         path.push(
           new Line([lastX, newY, newX, newY], { stroke: this.connectorColor }),
         );
@@ -448,7 +448,7 @@ class PG {
             stroke: this.connectorColor,
           }),
         );
-        let newX = passOSD.left - indent;
+        let newX = passOSD.left - SPACE_BETWEEN_OSD_COLS + indent;
         path.push(
           new Line([lastX, newY, newX, newY], { stroke: this.connectorColor }),
         );
@@ -462,7 +462,7 @@ class PG {
           stroke: this.connectorColor,
         }),
       );
-      let newX = passOSD.left - indent;
+      let newX = passOSD.left - SPACE_BETWEEN_OSD_COLS + indent;
       path.push(
         new Line([lastX, newY, newX, newY], { stroke: this.connectorColor }),
       );
