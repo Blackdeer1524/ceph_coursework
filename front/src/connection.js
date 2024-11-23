@@ -91,7 +91,7 @@ export class Bucket {
   /**
    * @param {PG} pg
    */
-  connectPG(pg) {
+  connectPrimary(pg) {
     let res = this.alloc.alloc();
     if (res === null) {
       throw Error(
@@ -141,7 +141,7 @@ export class Bucket {
   redrawConnectors() {
     this.connects.forEach((p) => p.forEach((l) => this.canvas.remove(l)));
     this.connects = [];
-    this.primaries.forEach((c) => this.connectPG(c));
+    this.primaries.forEach((c) => this.connectPrimary(c));
   }
 }
 
@@ -296,7 +296,7 @@ class PG {
       let n = child.col - this.col - 1;
       for (let i = 0; i < n; ++i) {
         let passOSD = this.lastColOSD[this.col + i + 1].drawnObj;
-        let newY = passOSD.top + passOSD.height + indent;
+        let newY = passOSD.top + passOSD.height + SPACE_BETWEEN_OSD_COLS - indent;
         path.push(
           new Line([lastX, lastY, lastX, newY], {
             stroke: this.connectorColor,
@@ -347,7 +347,7 @@ class PG {
             stroke: this.connectorColor,
           }),
         );
-        let newX = passOSD.left - SPACE_BETWEEN_OSD_COLS + indent;
+        let newX = passOSD.left - indent;
         path.push(
           new Line([lastX, newY, newX, newY], { stroke: this.connectorColor }),
         );
@@ -442,7 +442,7 @@ export class OSD {
       throw Error(`connect error: ${other.name} doesn't have PG ${pg_id}`);
     }
     other.parents.add(this);
-    this.bucket.connectPG(myPG);
+    this.bucket.connectPrimary(myPG);
     myPG.connect(otherPG);
   }
 
