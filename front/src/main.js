@@ -1,7 +1,10 @@
 import "./style.css";
-import { Rect, Line } from "fabric";
 import { mapCanvas } from "./mapCanvas";
-import { drawHierarchy, ConnectorAllocator } from "./connection";
+import {
+  drawHierarchy,
+  ConnectorAllocator,
+  PrimaryRegistry,
+} from "./connection";
 
 import { Bucket } from "./connection";
 
@@ -84,63 +87,62 @@ const h = {
 };
 
 let initGap = (mapCanvas.getWidth() - Bucket.width) / 2;
-let res = drawHierarchy(null, h, [initGap, 30], mapCanvas, []);
+let registry = new PrimaryRegistry();
 let alloc = new ConnectorAllocator(8);
-
-res.get("osd.1").addPG(1, alloc);
-res.get("osd.1").addPG(2, alloc);
-res.get("osd.1").addPG(3, alloc);
-res.get("osd.1").addPG(4, alloc);
-res.get("osd.1").addPG(5, alloc);
-res.get("osd.1").addPG(6, alloc);
-res.get("osd.1").addPG(7, alloc);
-res.get("osd.1").addPG(8, alloc);
-
-res.get("osd.3").addPG(1, alloc);
-res.get("osd.3").addPG(2, alloc);
-res.get("osd.3").addPG(3, alloc);
-res.get("osd.3").addPG(4, alloc);
-res.get("osd.3").addPG(5, alloc);
-res.get("osd.3").addPG(6, alloc);
-res.get("osd.3").addPG(7, alloc);
-res.get("osd.3").addPG(8, alloc);
-
-res.get("osd.5").addPG(8, alloc);
-res.get("osd.5").addPG(1, alloc);
-res.get("osd.5").addPG(7, alloc);
-res.get("osd.5").addPG(2, alloc);
-res.get("osd.5").addPG(6, alloc);
-res.get("osd.5").addPG(3, alloc);
-res.get("osd.5").addPG(5, alloc);
-res.get("osd.5").addPG(4, alloc);
+let res = drawHierarchy(null, h, [initGap, 30], mapCanvas, [], registry, alloc);
 
 
-res.get("osd.3").connect(res.get("osd.1"), 1, alloc);
-res.get("osd.3").connect(res.get("osd.1"), 2, alloc);
-res.get("osd.3").connect(res.get("osd.1"), 3, alloc);
-res.get("osd.3").connect(res.get("osd.1"), 4, alloc);
-res.get("osd.3").connect(res.get("osd.1"), 5, alloc);
-res.get("osd.3").connect(res.get("osd.1"), 6, alloc);
-res.get("osd.3").connect(res.get("osd.1"), 7, alloc);
-res.get("osd.3").connect(res.get("osd.1"), 8, alloc);
 
-res.get("osd.3").connect(res.get("osd.5"), 1, alloc);
-res.get("osd.3").connect(res.get("osd.5"), 2, alloc);
-res.get("osd.3").connect(res.get("osd.5"), 3, alloc);
-res.get("osd.3").connect(res.get("osd.5"), 4, alloc);
-res.get("osd.3").connect(res.get("osd.5"), 5, alloc);
-res.get("osd.3").connect(res.get("osd.5"), 6, alloc);
-res.get("osd.3").connect(res.get("osd.5"), 7, alloc);
-res.get("osd.3").connect(res.get("osd.5"), 8, alloc);
 
-// res.get("osd.5").connect(res.get("osd.3"), 1, alloc);
-// res.get("osd.5").connect(res.get("osd.3"), 2, alloc);
-// res.get("osd.5").connect(res.get("osd.3"), 3, alloc);
-// res.get("osd.5").connect(res.get("osd.3"), 4, alloc);
-// res.get("osd.5").connect(res.get("osd.3"), 5, alloc);
-// res.get("osd.5").connect(res.get("osd.3"), 6, alloc);
-// res.get("osd.5").connect(res.get("osd.3"), 7, alloc);
-// res.get("osd.5").connect(res.get("osd.3"), 8, alloc);
+
+
+
+res.get("osd.1").addPG(1);
+res.get("osd.1").addPG(2);
+res.get("osd.1").addPG(3);
+res.get("osd.1").addPG(4);
+res.get("osd.1").addPG(5);
+res.get("osd.1").addPG(6);
+res.get("osd.1").addPG(7);
+res.get("osd.1").addPG(8);
+
+
+res.get("osd.6").addPG(1);
+res.get("osd.6").addPG(2);
+res.get("osd.6").addPG(3);
+res.get("osd.6").addPG(4);
+res.get("osd.6").addPG(5);
+res.get("osd.6").addPG(6);
+res.get("osd.6").addPG(7);
+res.get("osd.6").addPG(8);
+
+res.get("osd.10").addPG(1);
+res.get("osd.10").addPG(2);
+res.get("osd.10").addPG(3);
+res.get("osd.10").addPG(4);
+res.get("osd.10").addPG(5);
+res.get("osd.10").addPG(6);
+res.get("osd.10").addPG(7);
+res.get("osd.10").addPG(8);
+
+
+res.get("osd.6").connect(res.get("osd.1"), 1);
+res.get("osd.6").connect(res.get("osd.1"), 2);
+res.get("osd.6").connect(res.get("osd.1"), 3);
+res.get("osd.6").connect(res.get("osd.1"), 4);
+res.get("osd.6").connect(res.get("osd.1"), 5);
+res.get("osd.6").connect(res.get("osd.1"), 6);
+res.get("osd.6").connect(res.get("osd.1"), 7);
+res.get("osd.6").connect(res.get("osd.1"), 8);
+
+res.get("osd.6").connect(res.get("osd.10"), 1);
+res.get("osd.6").connect(res.get("osd.10"), 2);
+res.get("osd.6").connect(res.get("osd.10"), 3);
+res.get("osd.6").connect(res.get("osd.10"), 4);
+res.get("osd.6").connect(res.get("osd.10"), 5);
+res.get("osd.6").connect(res.get("osd.10"), 6);
+res.get("osd.6").connect(res.get("osd.10"), 7);
+res.get("osd.6").connect(res.get("osd.10"), 8);
 
 // https://stackoverflow.com/a/35453052
 mapCanvas.renderAll();
