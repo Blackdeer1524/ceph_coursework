@@ -27,9 +27,9 @@ export class Bucket {
 
     this.children = [];
     /**
-     * @type {PG[]}
+     * @type {Set<PG>}
      */
-    this.primaries = []
+    this.primaries = new Set();
     this.connects = [];
   }
 
@@ -89,20 +89,23 @@ export class Bucket {
   }
 
   /**
-   * @param {PG} pg
+   * @param {PG} primary
    */
-  connectPrimary(pg) {
+  connectPrimary(primary) {
+    if (this.primaries.has(primary)) {
+      return;
+    }
     let res = this.alloc.alloc();
     if (res === null) {
       throw Error(
-        `couldn't allocate connection from ${this.name} to ${pg.name}`,
+        `couldn't allocate connection from ${this.name} to ${primary.name}`,
       );
     }
     let [connectorID, color] = res;
 
     const indent = this.alloc.getIndent(connectorID);
     const myHeightMidpoint = this.drawnObj.top + this.drawnObj.height / 2;
-    const pgHeightMidpoint = pg.drawnObj.top + pg.drawnObj.height / 2;
+    const pgHeightMidpoint = primary.drawnObj.top + primary.drawnObj.height / 2;
     let path = [
       new Line(
         [
@@ -126,14 +129,14 @@ export class Bucket {
         [
           this.drawnObj.left - indent,
           pgHeightMidpoint,
-          pg.drawnObj.left,
+          primary.drawnObj.left,
           pgHeightMidpoint,
         ],
         { stroke: color },
       ),
     ];
     this.connects.push(path);
-    this.primaries.push(pg);
+    this.primaries.add(primary);
 
     path.forEach((l) => this.canvas.add(l));
   }
@@ -220,7 +223,7 @@ class PG {
     /**
      * @type {PG[]}
      */
-    this.children = [];
+    this.replicas = [];
 
     this.drawnObj = new Rect({
       top: posY,
@@ -261,13 +264,13 @@ class PG {
   redrawConnectors() {
     this.connects.forEach((path) => path.forEach((l) => this.canvas.remove(l)));
     this.connects = [];
-    this.children.forEach((c) => this.connect(c));
+    this.replicas.forEach((c) => this.connect(c));
   }
 
   /**
-   * @param {PG} child
+   * @param {PG} replica
    */
-  connect(child) {
+  connect(replica) {
     if (this.connectorID === null) {
       let res = this.alloc.alloc();
       if (res === null) {
@@ -277,9 +280,9 @@ class PG {
     }
 
     let indent = this.alloc.getIndent(this.connectorID);
-    this.children.push(child);
+    this.replicas.push(replica);
 
-    if (this.col < child.col) {
+    if (this.col < replica.col) {
       let lastX = this.drawnObj.left + this.drawnObj.width + PGBoxGap + indent;
       let lastY = this.drawnObj.top + this.drawnObj.height / 2;
       let path = [
@@ -293,10 +296,11 @@ class PG {
           { stroke: this.connectorColor },
         ),
       ];
-      let n = child.col - this.col - 1;
+      let n = replica.col - this.col - 1;
       for (let i = 0; i < n; ++i) {
         let passOSD = this.lastColOSD[this.col + i + 1].drawnObj;
-        let newY = passOSD.top + passOSD.height + SPACE_BETWEEN_OSD_COLS - indent;
+        let newY =
+          passOSD.top + passOSD.height + SPACE_BETWEEN_OSD_COLS - indent;
         path.push(
           new Line([lastX, lastY, lastX, newY], {
             stroke: this.connectorColor,
@@ -311,16 +315,19 @@ class PG {
         lastY = newY;
       }
 
-      let childMidpointY = child.drawnObj.top + child.drawnObj.height / 2;
+      let childMidpointY = replica.drawnObj.top + replica.drawnObj.height / 2;
       path.push(
         new Line([lastX, lastY, lastX, childMidpointY], {
           stroke: this.connectorColor,
         }),
       );
       path.push(
-        new Line([lastX, childMidpointY, child.drawnObj.left, childMidpointY], {
-          stroke: this.connectorColor,
-        }),
+        new Line(
+          [lastX, childMidpointY, replica.drawnObj.left, childMidpointY],
+          {
+            stroke: this.connectorColor,
+          },
+        ),
       );
       path.forEach((c) => this.canvas.add(c));
       this.connects.push(path);
@@ -338,7 +345,7 @@ class PG {
           { stroke: this.connectorColor },
         ),
       ];
-      let n = this.col - child.col + 1;
+      let n = this.col - replica.col + 1;
       for (let i = 0; i < n - 1; ++i) {
         let passOSD = this.lastColOSD[this.col - i].drawnObj;
         let newY = passOSD.top + passOSD.height + indent;
@@ -354,7 +361,7 @@ class PG {
         lastX = newX;
         lastY = newY;
       }
-      let passOSD = this.lastColOSD[child.col].drawnObj;
+      let passOSD = this.lastColOSD[replica.col].drawnObj;
       let newY = passOSD.top + passOSD.height + indent;
       path.push(
         new Line([lastX, lastY, lastX, newY], {
@@ -368,16 +375,19 @@ class PG {
       lastX = newX;
       lastY = newY;
 
-      let childMidpointY = child.drawnObj.top + child.drawnObj.height / 2;
+      let childMidpointY = replica.drawnObj.top + replica.drawnObj.height / 2;
       path.push(
         new Line([lastX, lastY, lastX, childMidpointY], {
           stroke: this.connectorColor,
         }),
       );
       path.push(
-        new Line([lastX, childMidpointY, child.drawnObj.left, childMidpointY], {
-          stroke: this.connectorColor,
-        }),
+        new Line(
+          [lastX, childMidpointY, replica.drawnObj.left, childMidpointY],
+          {
+            stroke: this.connectorColor,
+          },
+        ),
       );
       path.forEach((c) => this.canvas.add(c));
       this.connects.push(path);
@@ -562,7 +572,13 @@ export function drawHierarchy(parent, root, pos, canvas, lastColOSD) {
 
   const [rootX, rootY] = pos;
 
-  let b = new Bucket(root.name, rootX, rootY, canvas, new ConnectorAllocator(8));
+  let b = new Bucket(
+    root.name,
+    rootX,
+    rootY,
+    canvas,
+    new ConnectorAllocator(8),
+  );
   if (parent !== null) {
     b.connectParentBucket(parent);
   }
@@ -570,7 +586,7 @@ export function drawHierarchy(parent, root, pos, canvas, lastColOSD) {
   /**
    * @type {HierarchyInfo}
    */
-  let res = new Map() ;
+  let res = new Map();
 
   if (root.children[0].type == "osd") {
     let childY = pos[1] + Bucket.height + STEP_Y_BETWEEN;
@@ -578,7 +594,15 @@ export function drawHierarchy(parent, root, pos, canvas, lastColOSD) {
 
     let osd = undefined;
     for (let child of root.children) {
-      osd = new OSD(b, child.name, rootX, childY, lastColOSD.length, canvas, lastColOSD);
+      osd = new OSD(
+        b,
+        child.name,
+        rootX,
+        childY,
+        lastColOSD.length,
+        canvas,
+        lastColOSD,
+      );
       prevOSD?.addNext(osd);
       prevOSD = osd;
       res.set(child.name, osd);
@@ -595,7 +619,7 @@ export function drawHierarchy(parent, root, pos, canvas, lastColOSD) {
         child,
         [leftBound + indent, childY],
         canvas,
-        lastColOSD
+        lastColOSD,
       );
       subtreeRes.forEach((value, key) => {
         res.set(key, value);
