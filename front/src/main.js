@@ -90,7 +90,9 @@ const h = {
 let initGap = (mapCanvas.getWidth() - Bucket.width) / 2;
 let registry = new PrimaryRegistry();
 let alloc = new ConnectorAllocator(PGCout);
-let res = drawHierarchy(null, h, [initGap, 30], mapCanvas, [], registry, alloc);
+
+let start = new Bucket("User", initGap, 30, null, mapCanvas)
+let res = drawHierarchy(start, h, [initGap, 130], mapCanvas, [], registry, alloc);
 
 res.get("osd.1").addPG(1);
 res.get("osd.1").addPG(2);
