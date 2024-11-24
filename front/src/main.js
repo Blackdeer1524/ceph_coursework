@@ -5,9 +5,14 @@ import {
   ConnectorAllocator,
   PrimaryRegistry,
   PGCout,
+  setupMapping,
 } from "./connection";
 
-import { animateSendStatus, animateSendItem, animateSendToReplicas } from "./animations";
+import {
+  animateSendStatus,
+  animateSendItem,
+  animateSendToReplicas,
+} from "./animations";
 
 import { Bucket } from "./connection";
 
@@ -93,69 +98,19 @@ let initGap = (mapCanvas.getWidth() - Bucket.width) / 2;
 let registry = new PrimaryRegistry();
 let alloc = new ConnectorAllocator(PGCout);
 
-let start = new Bucket("User", initGap, 30, null, mapCanvas)
-let res = drawHierarchy(start, h, [initGap, 130], mapCanvas, [], registry, alloc);
+let start = new Bucket("User", initGap, 30, null, mapCanvas);
+let res = drawHierarchy(
+  start,
+  h,
+  [initGap, 130],
+  mapCanvas,
+  [],
+  registry,
+  alloc,
+);
 
-res.get("osd.1").addPG(1);
-res.get("osd.1").addPG(2);
-res.get("osd.1").addPG(3);
-res.get("osd.1").addPG(4);
-res.get("osd.1").addPG(5);
-res.get("osd.1").addPG(6);
-res.get("osd.1").addPG(7);
-res.get("osd.1").addPG(8);
-
-res.get("osd.6").addPG(1);
-res.get("osd.6").addPG(2);
-res.get("osd.6").addPG(3);
-res.get("osd.6").addPG(4);
-res.get("osd.6").addPG(5);
-res.get("osd.6").addPG(6);
-res.get("osd.6").addPG(7);
-res.get("osd.6").addPG(8);
-
-res.get("osd.10").addPG(1);
-res.get("osd.10").addPG(2);
-res.get("osd.10").addPG(3);
-res.get("osd.10").addPG(4);
-res.get("osd.10").addPG(5);
-res.get("osd.10").addPG(6);
-res.get("osd.10").addPG(7);
-res.get("osd.10").addPG(8);
-
-res.get("osd.6").connect(res.get("osd.1"), 1);
-res.get("osd.6").connect(res.get("osd.1"), 2);
-res.get("osd.6").connect(res.get("osd.1"), 3);
-res.get("osd.6").connect(res.get("osd.1"), 4);
-res.get("osd.1").connect(res.get("osd.6"), 5);
-res.get("osd.1").connect(res.get("osd.6"), 6);
-res.get("osd.1").connect(res.get("osd.6"), 7);
-res.get("osd.1").connect(res.get("osd.6"), 8);
-
-res.get("osd.6").connect(res.get("osd.10"), 1);
-res.get("osd.6").connect(res.get("osd.10"), 2);
-res.get("osd.6").connect(res.get("osd.10"), 3);
-res.get("osd.6").connect(res.get("osd.10"), 4);
-res.get("osd.1").connect(res.get("osd.10"), 5);
-res.get("osd.1").connect(res.get("osd.10"), 6);
-res.get("osd.1").connect(res.get("osd.10"), 7);
-res.get("osd.1").connect(res.get("osd.10"), 8);
-
-registry.remove(1);
-res.get("osd.10").connect(res.get("osd.6"), 1);
-res.get("osd.10").connect(res.get("osd.1"), 1);
-
-
-animateSendItem(1, 3, registry)
-animateSendItem(1, 2, registry)
-animateSendToReplicas(1, 3, registry)
-
-animateSendStatus(1, 3, "osd.6", registry, "successRecv")
-animateSendStatus(1, 3, "osd.10", registry, "failRecv")
-
-// https://stackoverflow.com/a/35453052
-mapCanvas.renderAll();
-mapCanvas.forEachObject(function (object) {
-  object.selectable = false;
-});
-// END
+setupMapping(1, registry, ["osd.1", "osd.2", "osd.10"], res);
+setupMapping(2, registry, ["osd.2", "osd.1", "osd.10"], res);
+setupMapping(3, registry, ["osd.10", "osd.1", "osd.2"], res);
+setupMapping(4, registry, ["osd.2", "osd.1", "osd.10"], res);
+setupMapping(5, registry, ["osd.1", "osd.2", "osd.10"], res);

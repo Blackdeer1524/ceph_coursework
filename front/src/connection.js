@@ -8,6 +8,10 @@ export class PrimaryRegistry {
     this.registry = new Map();
   }
 
+  has(pgId) {
+    return this.registry.has(pgId);
+  }
+
   /**
    *
    * @param {number} pgId
@@ -298,15 +302,15 @@ class PG {
   }
 
   removeConnectors() {
-    this.connectors.forEach((path) =>
-      path.forEach((l) => this.canvas.remove(l)),
-    );
-    this.connectors = [];
-    this.interPgConnAlloc.free(this.connectorID);
-    this.connectorID = null;
-    this.connectorColor = null;
-
     if (this.pathToBucket !== null) {
+      this.connectors.forEach((path) =>
+        path.forEach((l) => this.canvas.remove(l)),
+      );
+      this.connectors = [];
+      this.interPgConnAlloc.free(this.connectorID);
+      this.connectorID = null;
+      this.connectorColor = null;
+
       this.osd.bucket.primaries.delete(this.id);
       this.pathToBucket.forEach((l) => this.canvas.remove(l));
       this.pathToBucket = null;
@@ -618,6 +622,10 @@ export class OSD {
    * @param {ConnectorAllocator} interPgConnAlloc
    */
   addPG(id) {
+    if (this.pgs.has(id)) {
+      return;
+    }
+
     let top = this.drawnText.top + this.drawnText.height + PGBoxGap;
     if (this.lastPG !== null) {
       top = this.lastPG.drawnObj.top + this.lastPG.drawnObj.height + PGBoxGap;
@@ -792,4 +800,24 @@ export function drawHierarchy(
     }
   }
   return res;
+}
+
+/**
+ * @param {number} pgId
+ * @param {PrimaryRegistry} registry
+ * @param {string[]} map
+ * @param {Map<string, OSD>} name2osd
+ */
+export function setupMapping(pgId, registry, map, name2osd) {
+  if (registry.has(pgId)) {
+    registry.remove(pgId);
+  }
+
+  let primaryOSD = name2osd.get(map[0]);
+  primaryOSD.addPG(pgId);
+  for (let i = 1; i < map.length; ++i) {
+    let secondaryOSD = name2osd.get(map[i]);
+    secondaryOSD.addPG(pgId);
+    primaryOSD.connect(secondaryOSD, pgId);
+  }
 }

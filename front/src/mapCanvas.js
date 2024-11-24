@@ -96,12 +96,17 @@ let mouse = {
 
 function render() {
   resizeCanvas();
-  requestAnimationFrame(render);
   handleWheel();
+
+  mapCanvas.forEachObject(function (object) {
+    object.selectable = false;
+  });
+  requestAnimationFrame(render);
 }
 requestAnimationFrame(render);
 
 function resizeCanvas() {
+  // https://stackoverflow.com/a/35453052
   let newHeight = canvasParent.clientHeight;
   let newWidth = canvasParent.clientWidth;
   if (mapCanvas.getHeight() != newHeight || mapCanvas.getWidth() != newWidth) {
