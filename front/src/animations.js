@@ -3,17 +3,29 @@ import { PrimaryRegistry } from "./connection";
 
 class Blob {
   static radius = 10;
+  static status2color = {
+    sending: "blue",
+    failRecv: "red",
+    successRecv: "green",
+  };
 
-  constructor(objId, left, top) {
+  /**
+   *
+   * @param {number} objId
+   * @param {number} centerX
+   * @param {number} centerY
+   * @param {"sending" | "failRecv", | "successRecv"} status
+   */
+  constructor(objId, centerX, centerY, status) {
     let c = new Circle({
-      left: left - Blob.radius,
-      top: top - Blob.radius,
+      left: centerX - Blob.radius,
+      top: centerY - Blob.radius,
       radius: Blob.radius,
-      fill: "blue",
+      fill: Blob.status2color[status],
     });
     let txt = new Textbox(`${objId}`, {
-      left: left - Blob.radius,
-      top: top - Blob.radius,
+      left: centerX - Blob.radius,
+      top: centerY - Blob.radius,
       width: Blob.radius * 2,
       fontSize: (Blob.radius * 3) / 2,
       fontWeight: "bold",
@@ -44,7 +56,7 @@ function animatePath(objId, path, canvas, callback) {
     const endY = l.y2;
     let lineLength = ((endX - startX) ** 2 + (endY - startY) ** 2) ** (1 / 2);
 
-    let blob = new Blob(objId, startX, startY);
+    let blob = new Blob(objId, startX, startY, "sending");
     canvas.add(blob.g);
 
     let done = false;
@@ -109,10 +121,64 @@ export function animateSendItem(objId, pgId, registry) {
 }
 
 /**
+ * 
+ * @param {number} objId
+ * @param {number} pgId 
+ * @param {PrimaryRegistry} registry 
+ */
+export function animateSendToReplicas(objId, pgId, registry) {
+  let primary = registry.get(pgId);
+  primary.connectors.forEach((path) => animatePath(objId, path, primary.canvas, () => {}))
+  
+}
+
+/**
  *
  * @param {number} objId
  * @param {number} pgId
  * @param {string} osd
  * @param {PrimaryRegistry} registry
+ * @param {"successRecv" | "failRecv"} status
  */
-export function animateSendSuccess(objId, pgId, osdName, registry) {}
+export function animateSendStatus(objId, pgId, osdName, registry, status) {
+  let primary = registry.get(pgId);
+  let canvas = primary.canvas;
+
+  /**
+   * @type {PG | null}
+   */
+  let target = null;
+  if (primary.osd.name == osdName) {
+    target = primary;
+  } else {
+    for (let replica of primary.replicas) {
+      if (replica.osd.name == osdName) {
+        target = replica;
+        break;
+      }
+    }
+  }
+  if (target === null) {
+    throw Error(`couldn't find ${pgId} on ${osdName}`);
+  }
+
+  let b = new Blob(
+    objId,
+    target.drawnObj.left + target.drawnObj.width / 2,
+    target.drawnObj.top + target.drawnObj.height / 2,
+    status,
+  );
+  canvas.add(b.g);
+
+  b.g.animate(
+    { opacity: 0 },
+    {
+      duration: 700,
+      onChange: canvas.renderAll.bind(canvas),
+      onComplete: function () {
+        canvas.remove(b.g);
+      },
+    },
+  );
+}
+
