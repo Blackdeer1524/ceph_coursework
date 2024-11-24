@@ -114,3 +114,9 @@ setupMapping(2, registry, ["osd.2", "osd.1", "osd.10"], res);
 setupMapping(3, registry, ["osd.10", "osd.1", "osd.2"], res);
 setupMapping(4, registry, ["osd.2", "osd.1", "osd.10"], res);
 setupMapping(5, registry, ["osd.1", "osd.2", "osd.10"], res);
+setupMapping(1, registry, ["osd.6", "osd.7", "osd.8"], res);
+
+res.get("osd.1").startPeering()
+res.get("osd.5").fail()
+res.get("osd.5").recoverFromFailure()
+

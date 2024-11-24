@@ -564,6 +564,8 @@ export class OSD {
     this.interPgConnAlloc = interPgConnAlloc;
     this.bucketPgConnAlloc = bucketPgConnAlloc;
 
+    this.peeringCount = 0;
+
     this.nextOSD = null;
     /**
      * @type {Map<number, PG>}
@@ -687,6 +689,28 @@ export class OSD {
       });
     } else {
       this.nextOSD.redraw(newY + newHeight + STEP_Y_BETWEEN);
+    }
+  }
+
+  fail() {
+    this.drawnObj.set({ fill: "red" });
+  }
+
+  recoverFromFailure() {
+    this.drawnObj.set({ fill: "#e1e1e1" });
+  }
+
+  startPeering() {
+    if (this.peeringCount == 0) {
+      this.drawnObj.set({ fill: "orange" });
+    }
+    this.peeringCount++;
+  }
+
+  endPeering() {
+    this.peeringCount--;
+    if (this.peeringCount == 0) {
+      this.drawnObj.set({ fill: "#e1e1e1" });
     }
   }
 }
