@@ -7,7 +7,7 @@ import {
   PGCout,
 } from "./connection";
 
-import { animateSendStatus, animateSendItem } from "./animations";
+import { animateSendStatus, animateSendItem, animateSendToReplicas } from "./animations";
 
 import { Bucket } from "./connection";
 
@@ -148,6 +148,7 @@ res.get("osd.10").connect(res.get("osd.1"), 1);
 
 animateSendItem(1, 3, registry)
 animateSendItem(1, 2, registry)
+animateSendToReplicas(1, 3, registry)
 
 animateSendStatus(1, 3, "osd.6", registry, "successRecv")
 animateSendStatus(1, 3, "osd.10", registry, "failRecv")

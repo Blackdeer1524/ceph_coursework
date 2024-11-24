@@ -90,20 +90,37 @@ mapCanvas.toggleDragMode(true);
 const canvasParent =
   document.getElementById("myCanvas").parentNode.parentElement;
 
-window.addEventListener("resize", resizeCanvas);
-function resizeCanvas() {
-  // Set the canvas width and height to match its CSS size
-  mapCanvas.setHeight(canvasParent.clientHeight);
-  mapCanvas.setWidth(canvasParent.clientWidth);
-  mapCanvas.renderAll();
+let mouse = {
+  scale: 1,
+};
+
+function render() {
+  resizeCanvas();
+  requestAnimationFrame(render);
+  handleWheel();
 }
-resizeCanvas();
+requestAnimationFrame(render);
+
+function resizeCanvas() {
+  let newHeight = canvasParent.clientHeight;
+  let newWidth = canvasParent.clientWidth;
+  if (mapCanvas.getHeight() != newHeight || mapCanvas.getWidth() != newWidth) {
+    mapCanvas.setHeight(canvasParent.clientHeight);
+    mapCanvas.setWidth(canvasParent.clientWidth);
+  }
+}
+
+function handleWheel() {
+  if (mapCanvas.getZoom() != mouse.scale) {
+    mapCanvas.setZoom(mouse.scale);
+  }
+}
 
 canvasParent.addEventListener("wheel", (e) => {
-  const currentZoomLevel = mapCanvas.getZoom();
+  console.log(e.deltaY);
   if (e.deltaY > 0) {
-    mapCanvas.setZoom(currentZoomLevel / 1.2);
+    mouse.scale /= 1.2;
   } else {
-    mapCanvas.setZoom(currentZoomLevel * 1.2);
+    mouse.scale *= 1.2;
   }
 });
