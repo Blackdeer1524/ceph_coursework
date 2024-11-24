@@ -1,4 +1,4 @@
-import { Canvas, Line, Rect, Textbox } from "fabric";
+import { Canvas, Circle, Group, Line, Rect, Textbox, util } from "fabric";
 
 export class PrimaryRegistry {
   constructor() {
@@ -8,15 +8,33 @@ export class PrimaryRegistry {
     this.registry = new Map();
   }
 
-  set(pgId, pg) {
-    let reg = this.registry.get(pgId);
+  /**
+   *
+   * @param {number} pgId
+   * @returns {PG}
+   */
+  get(pgId) {
+    let res = this.registry.get(pgId);
+    if (res === undefined) {
+      throw Error(`${pgId} not found in registry`);
+    }
+    return res;
+  }
+
+  /**
+   *
+   * @param {PG} pg
+   * @returns
+   */
+  add(pg) {
+    let reg = this.registry.get(pg.id);
     if (reg !== undefined) {
       if (reg === pg) {
         return;
       }
       throw Error(`${pgId} has already been registered as a primary`);
     }
-    this.registry.set(pgId, pg);
+    this.registry.set(pg.id, pg);
   }
 
   remove(pgId) {
@@ -61,8 +79,8 @@ export class Bucket {
     this.canvas.add(this.drawnObj);
     this.canvas.add(this.drawnText);
 
+    this.parent = parent;
     if (parent !== null) {
-      this.parent = parent;
       parent.connectChildBucket(this);
     }
 
@@ -579,7 +597,7 @@ export class OSD {
     if (myPG === undefined) {
       throw Error(`connect error: ${other.name} doesn't have PG ${pgId}`);
     }
-    this.primaryRegistry.set(pgId, myPG);
+    this.primaryRegistry.add(myPG);
     myPG.connectReplica(otherPG);
   }
 
@@ -769,4 +787,103 @@ export function drawHierarchy(
     }
   }
   return res;
+}
+
+/**
+ *
+ * @param {number} id
+ * @param {Line[]} path
+ * @param {Canvas} canvas
+ */
+function animatePath(id, path, canvas, callback) {
+  const radius = 10;
+  function draw(path, i) {
+    if (i >= path.length) {
+      callback();
+      return;
+    }
+    let l = path[i];
+    const startX = l.x1;
+    const startY = l.y1;
+    const endX = l.x2;
+    const endY = l.y2;
+    let obj = new Circle({
+      left: startX - radius,
+      top: startY - radius,
+      radius: radius,
+      fill: "blue",
+    });
+    let txt = new Textbox(`${id}`, {
+      left: startX - radius,
+      top: startY - radius,
+      width: radius * 2,
+      fontSize: radius * 3 / 2,
+      fontWeight: 'bold',
+      fill: "white",
+      textAlign: "center",
+    });
+    
+    let dist = ((endX - startX) ** 2 + (endY - startY) ** 2)**(1/2)
+
+    let g = new Group([obj, txt], {});
+    canvas.add(g);
+
+    let done = false;
+    g.animate(
+      { left: endX - radius, top: endY - radius },
+      {
+        duration: Math.max(dist * 5, 300),
+        onChange: canvas.renderAll.bind(canvas),
+        onComplete: () => {
+          if (done) {
+            return;  // onComplete is somehow called multiple times. 
+          }
+          done = true;
+          canvas.remove(g);
+          draw(path, i + 1);
+        },
+      },
+    );
+  }
+  draw(path, 0);
+}
+
+/**
+ * @param {Bucket} b
+ */
+function animateBucketPath(objId, b, finalCallback) {
+  if (b === null || b.parent === null) {
+    return;
+  }
+  let s = [];
+  while (b.parent !== null) {
+    let path = b.parent.connectors.get(b.name);
+    s.push(path);
+    b = b.parent;
+  }
+
+  let cur = s.length - 1;
+  function callback() {
+    --cur;
+    if (cur < 0) {
+      finalCallback();
+      return;
+    }
+    animatePath(objId, s[cur], b.canvas, callback);
+  }
+
+  animatePath(objId, s[s.length - 1], b.canvas, callback);
+}
+
+/**
+ *
+ * @param {nubmer} pgId
+ * @param {PrimaryRegistry} registry
+ */
+export function animateItem(objId, pgId, registry) {
+  let pg = registry.get(pgId);
+  let b = pg.osd.bucket;
+  animateBucketPath(objId, b, () => {
+    animatePath(objId, pg.pathToBucket, pg.canvas, () => {});
+  });
 }

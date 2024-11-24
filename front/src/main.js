@@ -5,6 +5,7 @@ import {
   ConnectorAllocator,
   PrimaryRegistry,
   PGCout,
+  animateItem,
 } from "./connection";
 
 import { Bucket } from "./connection";
@@ -142,6 +143,10 @@ res.get("osd.1").connect(res.get("osd.10"), 8);
 registry.remove(1);
 res.get("osd.10").connect(res.get("osd.6"), 1);
 res.get("osd.10").connect(res.get("osd.1"), 1);
+
+
+animateItem(1, 3, registry)
+animateItem(1, 2, registry)
 
 // https://stackoverflow.com/a/35453052
 mapCanvas.renderAll();
