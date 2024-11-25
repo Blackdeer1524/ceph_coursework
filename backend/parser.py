@@ -32,6 +32,7 @@ from typing import (
     NoReturn,
     Optional,
     Self,
+    TypedDict,
 )
 
 import platform
@@ -94,11 +95,19 @@ class DeviceInfo:
     device_class: str | None = None
 
 
+class JSONOSD(TypedDict):
+    name: str
+    type: Literal["osd"]
+
+
 @dataclass
 class Device:
     info: DeviceInfo
     _weight: WeightT
     _parent: "Bucket" = field(repr=False)
+
+    def to_json(self) -> JSONOSD:
+        return {"name": f"osd.{self.info.id}", "type": "osd"}
 
     @property
     def weight(self):
@@ -116,6 +125,12 @@ class AlgType(Enum):
     straw2 = auto()
 
 
+class JSONBucket(TypedDict):
+    name: str
+    type: Literal["bucket"]
+    children: list[Self | JSONOSD]
+
+
 @dataclass
 class Bucket:
     name: str
@@ -126,6 +141,10 @@ class Bucket:
     weight: WeightT = OutOfClusterWeight
     children: list[Self | Device] = field(default_factory=list)
     _parent: Self | None = field(init=False, default=None, repr=False)
+
+    def to_json(self) -> JSONBucket:
+        children_json = [child.to_json() for child in self.children]
+        return {"name": self.name, "type": "bucket", "children": children_json}
 
     # O(HierarchyHeight) weight update
     def _update_weight(self, delta: float) -> None:
@@ -162,7 +181,7 @@ class Bucket:
         ws = [c.weight for c in self.children]
         if sum(ws) == 0:
             ws[0] = UnitWeight
-            
+
         random.seed(hash((x, abs(self.id), r)))
         res = random.choices(self.children, ws)
         return res[0]

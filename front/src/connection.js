@@ -51,8 +51,195 @@ export class PrimaryRegistry {
   }
 }
 
+export class OSD {
+  static width = 150;
+  static initHeight = 60;
+
+  /**
+   * @param {Bucket} bucket
+   * @param {string} name
+   * @param {number} posX
+   * @param {number} posY
+   * @param {number} col
+   * @param {Canvas} canvas
+   * @param {OSD[]} lastColOSD
+   * @param {PrimaryRegistry} primaryRegistry
+   * @param {ConnectorAllocator} bucketPgConnAlloc
+   */
+  constructor(
+    bucket,
+    name,
+    posX,
+    posY,
+    col,
+    canvas,
+    lastColOSD,
+    primaryRegistry,
+    bucketPgConnAlloc,
+    interPgConnAlloc,
+  ) {
+    this.bucket = bucket;
+    this.name = name;
+    this.col = col;
+    this.canvas = canvas;
+    this.lastColOSD = lastColOSD;
+    this.primaryRegistry = primaryRegistry;
+    this.interPgConnAlloc = interPgConnAlloc;
+    this.bucketPgConnAlloc = bucketPgConnAlloc;
+
+    this.peeringCount = 0;
+
+    this.nextOSD = null;
+    /**
+     * @type {Map<number, PG>}
+     */
+    this.pgs = new Map();
+    this.lastPG = null;
+
+    this.drawnObj = new Rect({
+      top: posY,
+      left: posX,
+      width: OSD.width,
+      height: OSD.initHeight,
+      fill: "#e1e1e1",
+      rx: 5,
+      ry: 5,
+    });
+    this.drawnText = new Textbox(this.name, {
+      top: posY,
+      left: posX,
+      width: OSD.width,
+      fontSize: PGBoxHeight,
+      textAlign: "center",
+    });
+    this.canvas.add(this.drawnObj);
+    this.canvas.add(this.drawnText);
+  }
+
+  /**
+   *
+   * @param {OSD} other
+   * @param {number} pgId
+   * @param {OSD[]} lastColOSD
+   */
+  connect(other, pgId) {
+    let myPG = this.pgs.get(pgId);
+    if (myPG === undefined) {
+      throw Error(`connect error: ${this.name} doesn't have PG ${pgId}`);
+    }
+    let otherPG = other.pgs.get(pgId);
+    if (myPG === undefined) {
+      throw Error(`connect error: ${other.name} doesn't have PG ${pgId}`);
+    }
+    this.primaryRegistry.add(myPG);
+    myPG.connectReplica(otherPG);
+  }
+
+  /**
+   * @param {OSD} other
+   */
+  addNext(other) {
+    this.nextOSD = other;
+  }
+
+  /**
+   * @param {number} id
+   * @param {ConnectorAllocator} interPgConnAlloc
+   */
+  addPG(id) {
+    if (this.pgs.has(id)) {
+      return;
+    }
+
+    let top = this.drawnText.top + this.drawnText.height + PGBoxGap;
+    if (this.lastPG !== null) {
+      top = this.lastPG.drawnObj.top + this.lastPG.drawnObj.height + PGBoxGap;
+    }
+    this.lastPG = new PG(
+      id,
+      this,
+      this.drawnObj.left,
+      top,
+      this.col,
+      this.canvas,
+      this.lastColOSD,
+      this.bucketPgConnAlloc,
+      this.interPgConnAlloc,
+    );
+    this.pgs.set(id, this.lastPG);
+    this.redraw(this.drawnObj.top);
+  }
+
+  /**
+   * @param {number} newY
+   */
+  redraw(newY) {
+    this.canvas.remove(this.drawnObj);
+    const newHeight = Math.max(
+      OSD.initHeight,
+      this.drawnText.height +
+        this.pgs.size * PGBoxHeight +
+        (this.pgs.size + 1) * 3,
+    );
+    let oldTop = this.drawnObj.top;
+    this.drawnObj.height = newHeight;
+    this.drawnObj.top = newY;
+    this.canvas.add(this.drawnObj);
+
+    this.canvas.remove(this.drawnText);
+    this.drawnText.top = newY;
+    this.canvas.add(this.drawnText);
+
+    this.pgs.forEach((pg) => {
+      pg.redraw(newY - oldTop);
+    });
+
+    if (this.nextOSD === null) {
+      this.primaryRegistry.registry.forEach((primary) => {
+        if (primary.col >= this.col) {
+          primary.replicas.forEach((replica) => {
+            if (replica.col <= this.col) {
+              primary.redrawConnectors();
+            }
+          });
+        } else {
+          primary.replicas.forEach((replica) => {
+            if (replica.col >= this.col) {
+              primary.redrawConnectors();
+            }
+          });
+        }
+      });
+    } else {
+      this.nextOSD.redraw(newY + newHeight + STEP_Y_BETWEEN);
+    }
+  }
+
+  fail() {
+    this.drawnObj.set({ fill: "red" });
+  }
+
+  recoverFromFailure() {
+    this.drawnObj.set({ fill: "#e1e1e1" });
+  }
+
+  startPeering() {
+    if (this.peeringCount == 0) {
+      this.drawnObj.set({ fill: "orange" });
+    }
+    this.peeringCount++;
+  }
+
+  endPeering() {
+    this.peeringCount--;
+    if (this.peeringCount == 0) {
+      this.drawnObj.set({ fill: "#e1e1e1" });
+    }
+  }
+}
+
 export class Bucket {
-  static width = 100;
+  static width = OSD.width;
   static height = 60;
 
   /**
@@ -161,7 +348,7 @@ export class Bucket {
 
 const SPACE_BETWEEN_OSD_COLS = 60;
 const STEP_Y_BETWEEN = 40;
-export const PGCout = 10;
+export const PGCout = 20;
 const PGBoxHeight = 20;
 const PGBoxGap = 3;
 
@@ -527,193 +714,7 @@ class PG {
     }
   }
 }
-
-export class OSD {
-  static width = 100;
-  static initHeight = 60;
-
-  /**
-   * @param {Bucket} bucket
-   * @param {string} name
-   * @param {number} posX
-   * @param {number} posY
-   * @param {number} col
-   * @param {Canvas} canvas
-   * @param {OSD[]} lastColOSD
-   * @param {PrimaryRegistry} primaryRegistry
-   * @param {ConnectorAllocator} bucketPgConnAlloc
-   */
-  constructor(
-    bucket,
-    name,
-    posX,
-    posY,
-    col,
-    canvas,
-    lastColOSD,
-    primaryRegistry,
-    bucketPgConnAlloc,
-    interPgConnAlloc,
-  ) {
-    this.bucket = bucket;
-    this.name = name;
-    this.col = col;
-    this.canvas = canvas;
-    this.lastColOSD = lastColOSD;
-    this.primaryRegistry = primaryRegistry;
-    this.interPgConnAlloc = interPgConnAlloc;
-    this.bucketPgConnAlloc = bucketPgConnAlloc;
-
-    this.peeringCount = 0;
-
-    this.nextOSD = null;
-    /**
-     * @type {Map<number, PG>}
-     */
-    this.pgs = new Map();
-    this.lastPG = null;
-
-    this.drawnObj = new Rect({
-      top: posY,
-      left: posX,
-      width: OSD.width,
-      height: OSD.initHeight,
-      fill: "#e1e1e1",
-      rx: 5,
-      ry: 5,
-    });
-    this.drawnText = new Textbox(this.name, {
-      top: posY,
-      left: posX,
-      width: OSD.width,
-      fontSize: PGBoxHeight,
-      textAlign: "center",
-    });
-    this.canvas.add(this.drawnObj);
-    this.canvas.add(this.drawnText);
-  }
-
-  /**
-   *
-   * @param {OSD} other
-   * @param {number} pgId
-   * @param {OSD[]} lastColOSD
-   */
-  connect(other, pgId) {
-    let myPG = this.pgs.get(pgId);
-    if (myPG === undefined) {
-      throw Error(`connect error: ${this.name} doesn't have PG ${pgId}`);
-    }
-    let otherPG = other.pgs.get(pgId);
-    if (myPG === undefined) {
-      throw Error(`connect error: ${other.name} doesn't have PG ${pgId}`);
-    }
-    this.primaryRegistry.add(myPG);
-    myPG.connectReplica(otherPG);
-  }
-
-  /**
-   * @param {OSD} other
-   */
-  addNext(other) {
-    this.nextOSD = other;
-  }
-
-  /**
-   * @param {number} id
-   * @param {ConnectorAllocator} interPgConnAlloc
-   */
-  addPG(id) {
-    if (this.pgs.has(id)) {
-      return;
-    }
-
-    let top = this.drawnText.top + this.drawnText.height + PGBoxGap;
-    if (this.lastPG !== null) {
-      top = this.lastPG.drawnObj.top + this.lastPG.drawnObj.height + PGBoxGap;
-    }
-    this.lastPG = new PG(
-      id,
-      this,
-      this.drawnObj.left,
-      top,
-      this.col,
-      this.canvas,
-      this.lastColOSD,
-      this.bucketPgConnAlloc,
-      this.interPgConnAlloc,
-    );
-    this.pgs.set(id, this.lastPG);
-    this.redraw(this.drawnObj.top);
-  }
-
-  /**
-   * @param {number} newY
-   */
-  redraw(newY) {
-    this.canvas.remove(this.drawnObj);
-    const newHeight = Math.max(
-      OSD.initHeight,
-      this.drawnText.height +
-        this.pgs.size * PGBoxHeight +
-        (this.pgs.size + 1) * 3,
-    );
-    let oldTop = this.drawnObj.top;
-    this.drawnObj.height = newHeight;
-    this.drawnObj.top = newY;
-    this.canvas.add(this.drawnObj);
-
-    this.canvas.remove(this.drawnText);
-    this.drawnText.top = newY;
-    this.canvas.add(this.drawnText);
-
-    this.pgs.forEach((pg) => {
-      pg.redraw(newY - oldTop);
-    });
-
-    if (this.nextOSD === null) {
-      this.primaryRegistry.registry.forEach((primary) => {
-        if (primary.col >= this.col) {
-          primary.replicas.forEach((replica) => {
-            if (replica.col <= this.col) {
-              primary.redrawConnectors();
-            }
-          });
-        } else {
-          primary.replicas.forEach((replica) => {
-            if (replica.col >= this.col) {
-              primary.redrawConnectors();
-            }
-          });
-        }
-      });
-    } else {
-      this.nextOSD.redraw(newY + newHeight + STEP_Y_BETWEEN);
-    }
-  }
-
-  fail() {
-    this.drawnObj.set({ fill: "red" });
-  }
-
-  recoverFromFailure() {
-    this.drawnObj.set({ fill: "#e1e1e1" });
-  }
-
-  startPeering() {
-    if (this.peeringCount == 0) {
-      this.drawnObj.set({ fill: "orange" });
-    }
-    this.peeringCount++;
-  }
-
-  endPeering() {
-    this.peeringCount--;
-    if (this.peeringCount == 0) {
-      this.drawnObj.set({ fill: "#e1e1e1" });
-    }
-  }
-}
+ 
 
 /**
  * @typedef {Object} OSDDesc

@@ -121,15 +121,16 @@ export function animateSendItem(objId, pgId, registry) {
 }
 
 /**
- * 
+ *
  * @param {number} objId
- * @param {number} pgId 
- * @param {PrimaryRegistry} registry 
+ * @param {number} pgId
+ * @param {PrimaryRegistry} registry
  */
 export function animateSendToReplicas(objId, pgId, registry) {
   let primary = registry.get(pgId);
-  primary.connectors.forEach((path) => animatePath(objId, path, primary.canvas, () => {}))
-  
+  primary.connectors.forEach((path) =>
+    animatePath(objId, path, primary.canvas, () => {}),
+  );
 }
 
 /**
@@ -181,4 +182,3 @@ export function animateSendStatus(objId, pgId, osdName, registry, status) {
     },
   );
 }
-

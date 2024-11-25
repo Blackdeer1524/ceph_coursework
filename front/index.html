@@ -1,34 +1,36 @@
 <!doctype html>
 <html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="/vite.svg" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Vite App</title>
+  </head>
 
-<head>
-  <meta charset="UTF-8" />
-  <link rel="icon" type="image/svg+xml" href="/vite.svg" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Vite App</title>
-</head>
-
-<body>
-  <div class="h-[100vh] w-[100vw] flex">
-    <div class="flex flex-col sticky left-0 top-0 bottom-0 bg-red-600 w-[30%]">
-      <div class="flex-grow">CRUSH editor</div>
-      <div class="bg-green-300">
-        submit panel
+  <body>
+    <div class="h-[100vh] w-[100vw] flex">
+      <div
+        class="flex flex-col sticky left-0 top-0 bottom-0 bg-red-600 w-[30%]"
+      >
+        <div class="flex-grow overflow-auto m-1">
+          <textarea class="w-80 h-[99%]"></textarea>
+        </div>
+        <div class="bg-green-300 p-1 flex flex-row-reverse gap-2">
+          <button id="config-submit">Submit</button>
+        </div>
+      </div>
+      <div class="bg-blue-300 w-[70%] flex flex-col">
+        <div class="bg-pink-300 p-1 flex flex-row-reverse gap-2">
+          <button id="sim-start" class="">Start</button>
+        </div>
+        <div
+          id="canvasContainer"
+          class="flex-grow overflow-hidden bg-white relative"
+        >
+          <canvas id="myCanvas"></canvas>
+        </div>
       </div>
     </div>
-    <div class="bg-blue-300 w-[70%] flex flex-col">
-      <div class=" bg-pink-300">
-        <label for="dragmode">
-          Enable panning
-          <input type="checkbox" id="dragmode" name="dragmode" />
-        </label>
-      </div>
-      <div id="canvasContainer" class="flex-grow overflow-hidden">
-        <canvas id="myCanvas"></canvas>
-      </div>
-    </div>
-  </div>
-  <script type="module" src="/src/main.js"></script>
-</body>
-
+    <script type="module" src="/src/main.js"></script>
+  </body>
 </html>

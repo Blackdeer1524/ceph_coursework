@@ -8,14 +8,7 @@ from typing import (
     NewType,
 )
 from crush import Tunables, apply
-from parser import (
-    Bucket,
-    OutOfClusterWeight,
-    Device,
-    DeviceID_T,
-    Rule,
-    WeightT
-)
+from parser import Bucket, OutOfClusterWeight, Device, DeviceID_T, Rule, WeightT
 
 
 @dataclass
@@ -35,68 +28,127 @@ class LogData:
 
 
 ObjectID_T = NewType("ObjectID_T", int)
+PlacementGroupID_T = NewType("PlacementGroupID_T", int)
 
 
 @dataclass(frozen=True)
 class EPrimaryRecvSuccess:
     obj: ObjectID_T
-    dst: DeviceID_T
+    pg: PlacementGroupID_T
+
+    def to_json(self):
+        return {"type": "primary_recv_success", "pg": self.pg, "objId": self.obj}
 
 
 @dataclass(frozen=True)
 class EPrimaryRecvAcknowledged:
     obj: ObjectID_T
-    dst: DeviceID_T
+    pg: PlacementGroupID_T
+
+    def to_json(self):
+        return {"type": "primary_recv_ack", "pg": self.pg, "objId": self.obj}
 
 
 @dataclass(frozen=True)
 class EPrimaryRecvFailure:
-    id: ObjectID_T
-    dst: DeviceID_T
+    obj: ObjectID_T
+    pg: PlacementGroupID_T
+
+    def to_json(self):
+        return {"type": "primary_recv_fail", "pg": self.pg, "objId": self.obj}
 
 
 @dataclass(frozen=True)
 class EPrimaryReplicationFail:
     obj: ObjectID_T
-    dst: DeviceID_T
+    pg: PlacementGroupID_T
+
+    def to_json(self):
+        return {"type": "primary_replication_fail", "pg": self.pg, "objId": self.obj}
 
 
 @dataclass(frozen=True)
 class EReplicaRecvAcknowledged:
     obj: ObjectID_T
-    replica: DeviceID_T
-    primary: DeviceID_T
+    pg: PlacementGroupID_T
+    osd: DeviceID_T
+
+    def to_json(self):
+        return {
+            "type": "replica_recv_ack",
+            "pg": self.pg,
+            "objId": self.obj,
+            "osd": f"osd.{self.osd}",
+        }
 
 
 @dataclass(frozen=True)
 class EReplicaRecvSuccess:
     obj: ObjectID_T
-    primary: DeviceID_T
-    replica: DeviceID_T
+    pg: PlacementGroupID_T
+    osd: DeviceID_T
+
+    def to_json(self):
+        return {
+            "type": "replica_recv_success",
+            "pg": self.pg,
+            "objId": self.obj,
+            "osd": f"osd.{self.osd}",
+        }
 
 
 @dataclass(frozen=True)
 class EReplicaRecvFailure:
     obj: ObjectID_T
-    primary: DeviceID_T
-    replica: DeviceID_T
+    pg: PlacementGroupID_T
+    osd: DeviceID_T
+
+    def to_json(self):
+        return {
+            "type": "replica_recv_fail",
+            "pg": self.pg,
+            "objId": self.obj,
+            "osd": f"osd.{self.osd}",
+        }
 
 
 @dataclass(frozen=True)
 class EPeeringStart:
     id: int
-    pg_id: int
+    pg: PlacementGroupID_T
     device_ids: list[DeviceID_T]
+    map_candidate: list[DeviceID_T]
+
+    def to_json(self):
+        return {
+            "type": "peering_start",
+            "pg": self.pg,
+            "osds": [f"osd.{i}" for i in self.device_ids],
+            "new_map_candidate": [f"osd.{i}" for i in self.map_candidate],
+            "peering_id": self.id,
+        }
 
 
 @dataclass(frozen=True)
 class EPeeringSuccess:
     id: int
 
+    def to_json(self):
+        return {
+            "type": "peering_success",
+            "peering_id": self.id,
+        }
+
 
 @dataclass(frozen=True)
 class EPeeringFailure:
     id: int
+
+    def to_json(self):
+        return {
+            "type": "peering_fail",
+            "peering_id": self.id,
+        }
 
 
 @dataclass()
@@ -162,7 +214,7 @@ class Context:
 
 @dataclass
 class PlacementGroup:
-    id: int
+    id: PlacementGroupID_T
     logs: dict[DeviceID_T, LogData] = field(init=False, default_factory=dict)
     last_sync: int = field(init=False, default=-1)
     _maps: list[list[Device]] = field(init=False, default_factory=list)
@@ -210,7 +262,7 @@ class PlacementGroup:
         ):
             return [
                 Event(
-                    EPrimaryRecvFailure(obj_id, primary.info.id),
+                    EPrimaryRecvFailure(obj_id, self.id),
                     context.current_time + context.timeout,
                 )
             ]
@@ -220,7 +272,7 @@ class PlacementGroup:
         )
         res: list[Event] = [
             Event(
-                EPrimaryRecvSuccess(obj_id, primary.info.id),
+                EPrimaryRecvSuccess(obj_id, self.id),
                 primary_write_time,
                 lambda: self.logs[primary.info.id].ops.append(
                     Operation(obj_id, op_type)
@@ -241,7 +293,7 @@ class PlacementGroup:
             ):
                 res.append(
                     Event(
-                        EReplicaRecvSuccess(obj_id, primary.info.id, d.info.id),
+                        EReplicaRecvSuccess(obj_id, self.id, d.info.id),
                         primary_write_time
                         + context.conn_speed[primary.info.id, d.info.id],
                         (
@@ -255,7 +307,7 @@ class PlacementGroup:
                 )
                 res.append(
                     Event(
-                        EReplicaRecvAcknowledged(obj_id, primary.info.id, d.info.id),
+                        EReplicaRecvAcknowledged(obj_id, self.id, d.info.id),
                         primary_write_time
                         + context.conn_speed[primary.info.id, d.info.id]
                         + 1,
@@ -271,7 +323,7 @@ class PlacementGroup:
                 failed = True
                 res.append(
                     Event(
-                        EReplicaRecvFailure(obj_id, primary.info.id, d.info.id),
+                        EReplicaRecvFailure(obj_id, self.id, d.info.id),
                         primary_write_time + context.timeout,
                     )
                 )
@@ -281,13 +333,11 @@ class PlacementGroup:
                 )
 
         if failed:
-            res.append(
-                Event(EPrimaryReplicationFail(obj_id, primary.info.id), max_time + 1)
-            )
+            res.append(Event(EPrimaryReplicationFail(obj_id, self.id), max_time + 1))
         else:
             res.append(
                 Event(
-                    EPrimaryRecvAcknowledged(obj_id, primary.info.id),
+                    EPrimaryRecvAcknowledged(obj_id, self.id),
                     max_time + 1,
                 )
             )
@@ -355,6 +405,7 @@ def map_pg(
                     peering_id,
                     pg.id,
                     list(devices_used_in_peering),
+                    [d.info.id for d in res],
                 ),
                 context.current_time,
             )
@@ -416,7 +467,9 @@ def get_iteration_event(
         tag.callback_results = map_pg(root, rule, tunables, cfg, context)
         context.do_time_step()
         tag.callback_results.append(
-            get_iteration_event(root, devices, init_weights, rule, tunables, cfg, context)
+            get_iteration_event(
+                root, devices, init_weights, rule, tunables, cfg, context
+            )
         )
 
     return Event(tag, context.current_time, callback)
