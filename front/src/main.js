@@ -6,6 +6,7 @@ import {
   PrimaryRegistry,
   PGCout,
   setupMapping,
+  OSD,
 } from "./connection";
 
 import {
@@ -15,112 +16,6 @@ import {
 } from "./animations";
 
 import { Bucket } from "./connection";
-
-/** @type BucketDesc */
-const h = {
-  name: "root",
-  type: "bucket",
-  children: [
-    {
-      name: "rack-1",
-      type: "bucket",
-      children: [
-        {
-          name: "osd.1",
-          type: "osd",
-        },
-        {
-          name: "osd.2",
-          type: "osd",
-        },
-      ],
-    },
-    {
-      name: "rack-2",
-      type: "bucket",
-      children: [
-        {
-          name: "osd.3",
-          type: "osd",
-        },
-        {
-          name: "osd.4",
-          type: "osd",
-        },
-        {
-          name: "osd.5",
-          type: "osd",
-        },
-        {
-          name: "osd.10",
-          type: "osd",
-        },
-      ],
-    },
-    {
-      name: "rack-3",
-      type: "bucket",
-      children: [
-        {
-          name: "row-1",
-          type: "bucket",
-          children: [
-            {
-              name: "osd.6",
-              type: "osd",
-            },
-            {
-              name: "osd.7",
-              type: "osd",
-            },
-          ],
-        },
-        {
-          name: "row-2",
-          type: "bucket",
-          children: [
-            {
-              name: "osd.8",
-              type: "osd",
-            },
-            {
-              name: "osd.9",
-              type: "osd",
-            },
-          ],
-        },
-      ],
-    },
-  ],
-};
-
-// let registry = new PrimaryRegistry();
-// let interPgConnAlloc = new ConnectorAllocator(PGCout);
-//
-// let start = new Bucket("User", INIT_GAP, 30, null, mapCanvas);
-// let res = drawHierarchy(
-//   start,
-//   h,
-//   [INIT_GAP, 130],
-//   mapCanvas,
-//   [],
-//   registry,
-//   interPgConnAlloc,
-// );
-//
-// setupMapping(1, registry, ["osd.1", "osd.2", "osd.10"], res);
-// setupMapping(2, registry, ["osd.2", "osd.1", "osd.10"], res);
-// setupMapping(3, registry, ["osd.10", "osd.1", "osd.2"], res);
-// setupMapping(4, registry, ["osd.2", "osd.1", "osd.10"], res);
-// setupMapping(5, registry, ["osd.1", "osd.2", "osd.10"], res);
-// setupMapping(1, registry, ["osd.6", "osd.7", "osd.8"], res);
-//
-// res.get("osd.1").startPeering();
-// res.get("osd.5").fail();
-// res.get("osd.5").recoverFromFailure();
-//
-// animateSendItem(1, 1, registry);
-// animateSendToReplicas(1, 3, registry);
 
 function main() {
   let simStart = document.getElementById("sim-start");
@@ -202,13 +97,22 @@ rule hot {
     step chooseleaf firstn 0 type host
     step emit
 }
+
   `,
       }),
     );
   });
 
   /**
+   * @typedef {Object} PeeringData
+   * @property {string[]} newMap
+   * @property {string[]} peeringOsds
+   * @property {number} pg
+   */
+
+  /**
    * @typedef {Object} State
+   * @property {Map<number, PeeringData>} peeringInfo
    * @property {Bucket} start
    * @property {PrimaryRegistry} registry
    * @property {ConnectorAllocator} interPgConnAlloc
@@ -223,7 +127,6 @@ rule hot {
   socket.addEventListener("message", (event) => {
     let res = JSON.parse(event.data);
 
-    console.log(res.type);
     switch (res.type) {
       case "hierarchy":
         const INIT_GAP = (mapCanvas.getWidth() - Bucket.width) / 2;
@@ -231,7 +134,8 @@ rule hot {
         state = {
           start: new Bucket("User", INIT_GAP, 30, null, mapCanvas),
           registry: new PrimaryRegistry(),
-          interPgConnAlloc: new ConnectorAllocator(PGCout),
+          interPgConnAlloc: new ConnectorAllocator(PGCout, true, true),
+          peeringInfo: new Map(),
         };
         state.name2osd = drawHierarchy(
           state.start,
@@ -329,16 +233,46 @@ rule hot {
             }
             case "peering_start": {
               e.osds.forEach((osdName) => {
-                state.name2osd.get(osdName).
-              })
-
-              animateSendStatus(
-                e.objId,
-                e.pg,
-                e.osd,
+                state.name2osd.get(osdName).pgs.get(e.pg).startPeering();
+              });
+              state.peeringInfo.set(e.peering_id, {
+                newMap: e.new_map_candidate,
+                peeringOsds: e.osds,
+                pg: e.pg,
+              });
+              break;
+            }
+            case "peering_success": {
+              let info = state.peeringInfo.get(e.peering_id);
+              console.log("peering success: ", info)
+              setupMapping(
+                info.pg,
                 state.registry,
-                "failRecv",
+                info.newMap,
+                state.name2osd,
               );
+              info.peeringOsds.forEach((osdName) => {
+                state.name2osd.get(osdName).pgs.get(info.pg).endPeering();
+              });
+              state.peeringInfo.delete(e.peering_id);
+              break;
+            }
+            case "peering_fail": {
+              let info = state.peeringInfo.get(e.peering_id);
+              info.peeringOsds.forEach((osdName) => {
+                state.name2osd.get(osdName).pgs.get(info.pg).endPeering();
+              });
+              state.peeringInfo.delete(e.peering_id);
+              break;
+            }
+            case "osd_failed": {
+              console.log(`${timestamp}: ${e.osd} failed`);
+              state.name2osd.get(e.osd).fail();
+              break;
+            }
+            case "osd_recovered": {
+              console.log(`${timestamp}: ${e.osd} recovered`);
+              state.name2osd.get(e.osd).recover();
               break;
             }
           }

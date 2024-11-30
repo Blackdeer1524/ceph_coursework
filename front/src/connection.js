@@ -33,21 +33,22 @@ export class PrimaryRegistry {
   add(pg) {
     let reg = this.registry.get(pg.id);
     if (reg !== undefined) {
-      if (reg === pg) {
+      if (reg.id === pg.id && reg.osd.name === pg.osd.name) {
         return;
       }
       throw Error(`${pgId} has already been registered as a primary`);
     }
     this.registry.set(pg.id, pg);
+    pg.connectToBucket();
   }
 
   remove(pgId) {
     let primary = this.registry.get(pgId);
     if (primary === undefined) {
-      throw Error(`no primary found: ${pgId}`);
+      return;
     }
-    this.registry.delete(pgId);
     primary.removeConnectors();
+    this.registry.delete(pgId);
   }
 }
 
@@ -86,8 +87,6 @@ export class OSD {
     this.primaryRegistry = primaryRegistry;
     this.interPgConnAlloc = interPgConnAlloc;
     this.bucketPgConnAlloc = bucketPgConnAlloc;
-
-    this.peeringCount = 0;
 
     this.nextOSD = null;
     /**
@@ -144,10 +143,14 @@ export class OSD {
 
   /**
    * @param {number} id
-   * @param {ConnectorAllocator} interPgConnAlloc
+   * @param {bool} isPrimary
    */
-  addPG(id) {
-    if (this.pgs.has(id)) {
+  addPG(id, isPrimary) {
+    let pg = this.pgs.get(id);
+    if (pg !== undefined) {
+      if (isPrimary) {
+        this.primaryRegistry.add(pg);
+      }
       return;
     }
 
@@ -166,8 +169,13 @@ export class OSD {
       this.bucketPgConnAlloc,
       this.interPgConnAlloc,
     );
+
     this.pgs.set(id, this.lastPG);
     this.redraw(this.drawnObj.top);
+
+    if (isPrimary) {
+      this.primaryRegistry.add(this.lastPG);
+    }
   }
 
   /**
@@ -196,19 +204,22 @@ export class OSD {
 
     if (this.nextOSD === null) {
       this.primaryRegistry.registry.forEach((primary) => {
-        if (primary.col >= this.col) {
-          primary.replicas.forEach((replica) => {
-            if (replica.col <= this.col) {
-              primary.redrawConnectors();
-            }
-          });
-        } else {
-          primary.replicas.forEach((replica) => {
-            if (replica.col >= this.col) {
-              primary.redrawConnectors();
-            }
-          });
-        }
+        primary.redrawConnectors();
+        // if (primary.col >= this.col) {
+        //   for (let replica of primary.replicas) {
+        //     if (replica.col <= this.col) {
+        //       primary.redrawConnectors();
+        //       break;
+        //     }
+        //   }
+        // } else {
+        //   for (let replica of primary.replicas) {
+        //     if (replica.col >= this.col) {
+        //       primary.redrawConnectors();
+        //       break;
+        //     }
+        //   }
+        // }
       });
     } else {
       this.nextOSD.redraw(newY + newHeight + STEP_Y_BETWEEN);
@@ -217,24 +228,15 @@ export class OSD {
 
   fail() {
     this.drawnObj.set({ fill: "red" });
+    // this.pgs.forEach(pg => {
+    //   if (pg.replicas.length > 0) {
+    //     this.primaryRegistry.remove(pg.id)
+    //   }
+    // })
   }
 
-  recoverFromFailure() {
+  recover() {
     this.drawnObj.set({ fill: "#e1e1e1" });
-  }
-
-  startPeering() {
-    if (this.peeringCount == 0) {
-      this.drawnObj.set({ fill: "orange" });
-    }
-    this.peeringCount++;
-  }
-
-  endPeering() {
-    this.peeringCount--;
-    if (this.peeringCount == 0) {
-      this.drawnObj.set({ fill: "#e1e1e1" });
-    }
   }
 }
 
@@ -282,11 +284,6 @@ export class Bucket {
      * @type {Map<string, Bucket>}
      */
     this.children = new Map();
-
-    /**
-     * @type {Map<number, PG>}
-     */
-    this.primaries = new Map();
 
     /**
      * @type {Map<string, Line[]>}
@@ -348,7 +345,7 @@ export class Bucket {
 
 const SPACE_BETWEEN_OSD_COLS = 60;
 const STEP_Y_BETWEEN = 40;
-export const PGCout = 20;
+export const PGCout = 12;
 const PGBoxHeight = 20;
 const PGBoxGap = 3;
 
@@ -486,10 +483,25 @@ class PG {
      * @type {Line[][]}
      */
     this.connectors = [];
+    this.peeringCount = 0;
+  }
+
+  startPeering() {
+    if (this.peeringCount == 0) {
+      this.drawnObj.set({ fill: "orange" });
+    }
+    this.peeringCount++;
+  }
+
+  endPeering() {
+    this.peeringCount--;
+    if (this.peeringCount == 0) {
+      this.drawnObj.set({ fill: "#f6f6f6" });
+    }
   }
 
   removeConnectors() {
-    if (this.pathToBucket !== null) {
+    if (this.connectorID !== null) {
       this.connectors.forEach((path) =>
         path.forEach((l) => this.canvas.remove(l)),
       );
@@ -497,8 +509,10 @@ class PG {
       this.interPgConnAlloc.free(this.connectorID);
       this.connectorID = null;
       this.connectorColor = null;
+      this.replicas = []
+    }
 
-      this.osd.bucket.primaries.delete(this.id);
+    if (this.pathToBucket !== null) {
       this.pathToBucket.forEach((l) => this.canvas.remove(l));
       this.pathToBucket = null;
       this.bucketPgConnAlloc.free(this.bucketConnectorID);
@@ -523,23 +537,24 @@ class PG {
       path.forEach((l) => this.canvas.remove(l)),
     );
     this.connectors = [];
-    let old_replicas = this.replicas;
-    this.replicas = [];
-    old_replicas.forEach((c) => this.connectReplica(c));
+
+    let myReplicas = this.replicas
+    this.replicas = []
+    myReplicas.forEach((c) => this.connectReplica(c));
 
     if (this.pathToBucket !== null) {
       this.pathToBucket.forEach((l) => this.canvas.remove(l));
       this.pathToBucket = null;
-      this.connectBucket();
+      this.connectToBucket();
     }
   }
 
-  connectBucket() {
+  connectToBucket() {
     if (this.pathToBucket !== null) {
       return;
     }
+    let bucket = this.osd.bucket;
     if (this.bucketConnectorID == null) {
-      this.osd.bucket.primaries.set(this.id, this);
       let connOpt = this.bucketPgConnAlloc.alloc();
       if (connOpt === null) {
         throw Error(
@@ -549,7 +564,6 @@ class PG {
       [this.bucketConnectorID, this.bucketConnectorColor] = connOpt;
     }
 
-    let bucket = this.osd.bucket;
     const indent = this.bucketPgConnAlloc.getIndent(this.bucketConnectorID);
     const myHeightMidpoint = bucket.drawnObj.top + bucket.drawnObj.height / 2;
     const pgHeightMidpoint = this.drawnObj.top + this.drawnObj.height / 2;
@@ -591,15 +605,20 @@ class PG {
    * @param {PG} replica
    */
   connectReplica(replica) {
+    if (this.pathToBucket === null) {
+      throw Error(
+        `I tried to connect to replica, but I'm not primary: ${this.osd.name}, ${this.id} -> ${replica.osd.name}, ${replica.id}`,
+      );
+    }
+
     if (this.connectorID === null) {
+      console.log("allocating connect for ", this.osd.name, this.id);
       let res = this.interPgConnAlloc.alloc();
       if (res === null) {
         throw Error("couldn't allocate a connector");
       }
       [this.connectorID, this.connectorColor] = res;
     }
-
-    this.connectBucket();
 
     let indent = this.interPgConnAlloc.getIndent(this.connectorID);
     this.replicas.push(replica);
@@ -714,7 +733,6 @@ class PG {
     }
   }
 }
- 
 
 /**
  * @typedef {Object} OSDDesc
@@ -839,10 +857,10 @@ export function setupMapping(pgId, registry, map, name2osd) {
   }
 
   let primaryOSD = name2osd.get(map[0]);
-  primaryOSD.addPG(pgId);
+  primaryOSD.addPG(pgId, true);
   for (let i = 1; i < map.length; ++i) {
     let secondaryOSD = name2osd.get(map[i]);
-    secondaryOSD.addPG(pgId);
+    secondaryOSD.addPG(pgId, false);
     primaryOSD.connect(secondaryOSD, pgId);
   }
 }

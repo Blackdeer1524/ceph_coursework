@@ -1,7 +1,6 @@
 from collections import defaultdict
 from dataclasses import dataclass
 import json
-from pprint import pprint
 import sys
 from typing import Any, Generator
 import heapq
@@ -10,6 +9,8 @@ import heapq
 from parser import ParserResult
 from crush import Tunables
 from mapping import (
+    EOSDFailed,
+    EOSDRecovered,
     PlacementGroupID_T,
     DeviceID_T,
     WeightT,
@@ -46,50 +47,6 @@ def read_from_stdin_til_eof() -> Generator[str, None, None]:
 def initQueue(): ...
 
 
-def main():
-    q = open("./maps/default_map").readlines()
-    m = "".join(q)
-    # m = "".join(read_from_stdin_til_eof())
-    # print(m)
-
-    context = Context(
-        current_time=0,
-        timestep=20,
-        timesteps_to_peer=3,
-        timeout=100,
-        user_conn_speed=defaultdict(lambda: 30),
-        conn_speed=defaultdict(lambda: 30),
-        failure_proba=defaultdict(lambda: 0.05),
-        alive_intervals_per_device={},
-    )
-
-    pgs: list[PlacementGroup] = []
-    for i in range(20):
-        pgs.append(PlacementGroup(i))
-
-    cfg = PoolParams(size=3, min_size=2, pgs=PGList(c=pgs))
-    tunables = Tunables(5)
-
-    p = Parser(m)
-    r = p.parse()
-
-    DEATH_PROBA = 0.05
-
-    init_weights: dict[DeviceID_T, WeightT] = {}
-    for d in r.devices.values():
-        context.alive_intervals_per_device[d.info.id] = AliveIntervals(
-            d.info.id, DEATH_PROBA
-        )
-        init_weights[d.info.id] = d.weight
-
-    loop: Event = get_iteration_event(
-        r.root, r.devices, init_weights, r.rules[0], tunables, cfg, context
-    )
-
-    h: list[Event] = []
-    heapq.heappush(h, loop)
-
-
 def process_pending_events(q: list[Event]):
     res: list[dict[str, Any]] = []
     if len(q) == 0:
@@ -98,7 +55,6 @@ def process_pending_events(q: list[Event]):
     cur_time = q[0].time
     while len(q) > 0 and q[0].time == cur_time:
         top = heapq.heappop(q)
-        pprint(top)
         if top.callback is not None:
             top.callback()
 
@@ -117,6 +73,8 @@ def process_pending_events(q: list[Event]):
                 | EPeeringStart()
                 | EPeeringSuccess()
                 | EPeeringFailure()
+                | EOSDFailed() 
+                | EOSDRecovered()
             ):
                 res.append(top.tag.to_json())
     return cur_time, res
@@ -155,7 +113,7 @@ def setup_event_queue(r: ParserResult) -> SetupResult:
         )
         init_weights[d.info.id] = d.weight
 
-    pgs = PGList(c=[PlacementGroup(PlacementGroupID_T(i)) for i in range(20)])
+    pgs = PGList(c=[PlacementGroup(PlacementGroupID_T(i)) for i in range(12)])
 
     cfg = PoolParams(size=3, min_size=2, pgs=pgs)
     tunables = Tunables(5)
@@ -182,7 +140,6 @@ async def handler(websocket):
             case "step":
                 if setup is not None:
                     time, messages = process_pending_events(setup.queue)
-                    print(messages)
                     await websocket.send(json.dumps({"type": "events", "timestamp": time, "events": messages}))
             case other:
                 print(other)

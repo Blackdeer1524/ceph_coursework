@@ -122,7 +122,6 @@ function handleWheel() {
 }
 
 canvasParent.addEventListener("wheel", (e) => {
-  console.log(e.deltaY);
   if (e.deltaY > 0) {
     mouse.scale /= 1.2;
   } else {

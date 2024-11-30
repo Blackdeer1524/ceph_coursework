@@ -155,6 +155,26 @@ class EPeeringFailure:
 class EMainloopInteration:
     callback_results: list["Event"]
 
+@dataclass
+class EOSDFailed:
+    osd: str
+    
+    def to_json(self):
+        return {
+            "type": "osd_failed",
+            "osd": self.osd
+        }
+
+@dataclass
+class EOSDRecovered:
+    osd: str
+    
+    def to_json(self):
+        return {
+            "type": "osd_recovered",
+            "osd": self.osd
+        }
+
 
 EventTag = (
     EMainloopInteration
@@ -168,6 +188,8 @@ EventTag = (
     | EPeeringStart
     | EPeeringSuccess
     | EPeeringFailure
+    | EOSDFailed
+    | EOSDRecovered
 )
 
 
@@ -389,13 +411,15 @@ def map_pg(
     events: list[Event] = []
     for pg in cfg.pgs:
         res = apply(pg.id, root, rule, cfg.size, tunables)
+        if pg.id in (PlacementGroupID_T(1), PlacementGroupID_T(3)):
+            print(res)
         assert not isinstance(res, str), res
         if pg.is_peering or (len(pg.maps) > 0 and pg.maps[-1] == res):
             continue
 
-        maps, success = pg.peer(context)
+        prev_maps, success = pg.peer(context)
         devices_used_in_peering: set[DeviceID_T] = set()
-        for m in maps:
+        for m in prev_maps:
             devices_used_in_peering.update((d.info.id for d in m))
 
         peering_id = hash((pg.id, context.current_time))
@@ -461,10 +485,16 @@ def get_iteration_event(
     def callback():
         for d_id, intervals in context.alive_intervals_per_device.items():
             if intervals.check_at_time(context.current_time):
-                devices[d_id].update_weight(init_weights[d_id])
+                if devices[d_id].weight != init_weights[d_id]:
+                    devices[d_id].update_weight(init_weights[d_id])
+                    tag.callback_results.append(Event(EOSDRecovered(f"osd.{d_id}"), context.current_time))
             else:
-                devices[d_id].update_weight(OutOfClusterWeight)
-        tag.callback_results = map_pg(root, rule, tunables, cfg, context)
+                if devices[d_id].weight == init_weights[d_id]:
+                    devices[d_id].update_weight(OutOfClusterWeight)
+                    tag.callback_results.append(Event(EOSDFailed(f"osd.{d_id}"), context.current_time))
+        
+        tag.callback_results.extend(map_pg(root, rule, tunables, cfg, context))
+        
         context.do_time_step()
         tag.callback_results.append(
             get_iteration_event(
