@@ -6,7 +6,7 @@ from typing import Any, Generator
 import heapq
 
 
-from parser import ParserResult
+from parser import ParserResult, ParsingError
 from crush import Tunables
 from mapping import (
     EOSDFailed,
@@ -130,13 +130,20 @@ async def handler(websocket):
         m = json.loads(message)
         match m["type"]:
             case "rule":
-                r = Parser(m["message"]).parse()
-                hierarchy = r.root.to_json()
-                setup = setup_event_queue(r)
-                await websocket.send(json.dumps({
-                    "type": "hierarchy",
-                    "data": hierarchy ,
-                }))
+                try:
+                    r = Parser(m["message"]).parse()
+                except ParsingError as e:
+                    await websocket.send(json.dumps({
+                        "type": "hierarchy_fail",
+                        "data": str(e) ,
+                    }))
+                else:
+                    hierarchy = r.root.to_json()
+                    setup = setup_event_queue(r)
+                    await websocket.send(json.dumps({
+                        "type": "hierarchy_success",
+                        "data": hierarchy ,
+                    }))
             case "step":
                 if setup is not None:
                     time, messages = process_pending_events(setup.queue)

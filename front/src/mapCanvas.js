@@ -87,8 +87,9 @@ mapCanvas.toggleDragMode(true);
 //     mapCanvas.toggleDragMode(e.currentTarget.checked);
 // }
 
-const canvasParent =
+const canvasContainer =
   document.getElementById("myCanvas").parentNode.parentElement;
+const canvasParent = canvasContainer.parentElement;
 
 let mouse = {
   scale: 1,
@@ -121,7 +122,7 @@ function handleWheel() {
   }
 }
 
-canvasParent.addEventListener("wheel", (e) => {
+canvasContainer.addEventListener("wheel", (e) => {
   if (e.deltaY > 0) {
     mouse.scale /= 1.2;
   } else {

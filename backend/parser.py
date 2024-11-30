@@ -225,6 +225,9 @@ class ParserResult:
     rules: list[Rule]
 
 
+class ParsingError(Exception):
+    ...
+
 class Parser:
     def __init__(self, text: str):
         self.text = text
@@ -341,8 +344,7 @@ class Parser:
         return self.text[self.cursor : new]
 
     def report_error(self, msg: str) -> NoReturn:
-        print(msg, file=sys.stderr)
-        exit(1)
+        raise ParsingError(msg)
 
     def report_error_with_line(self, msg: str) -> NoReturn:
         if self.cursor < len(self.text):
@@ -351,17 +353,15 @@ class Parser:
             right_newline = len(self.text)
 
         col_prefix = f"{self.row} | "
-        print(
-            "{}{}\n{}^\n{}{}\n".format(
-                col_prefix,
-                self.text[self.last_newline_pos + 1 : right_newline],
-                " " * (len(col_prefix) + self.col - 1),
-                " " * len(col_prefix),
-                msg,
-            ),
-            file=sys.stderr,
-        )
-        exit(1)
+        formated_msg = "{}{}\n{}^\n{}{}\n".format(
+                    col_prefix,
+                    self.text[self.last_newline_pos + 1 : right_newline],
+                    " " * (len(col_prefix) + self.col - 1),
+                    " " * len(col_prefix),
+                    msg,
+                    )
+
+        self.report_error(formated_msg)
 
     def read_bucket_type(self) -> BucketT | None:
         for t in BucketT:

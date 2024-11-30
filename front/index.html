@@ -6,14 +6,13 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Vite App</title>
   </head>
-
   <body>
     <div class="h-[100vh] w-[100vw] flex">
       <div
         class="flex flex-col sticky left-0 top-0 bottom-0 bg-red-600 w-[30%]"
       >
-        <div class="flex-grow overflow-auto m-1">
-          <textarea class="w-80 h-[99%]"></textarea>
+        <div class="flex-grow overflow-x-auto overflow-y-hidden m-1">
+          <textarea class="w-[80ch] h-full" id="editor"></textarea>
         </div>
         <div class="bg-green-300 p-1 flex flex-row-reverse gap-2">
           <button id="config-submit">Submit</button>
@@ -21,13 +20,31 @@
       </div>
       <div class="bg-blue-300 w-[70%] flex flex-col">
         <div class="bg-pink-300 p-1 flex flex-row-reverse gap-2">
-          <button id="sim-start" class="">Start</button>
+          <button id="sim-start" class="">Step</button>
         </div>
-        <div
-          id="canvasContainer"
-          class="flex-grow overflow-hidden bg-white relative"
-        >
-          <canvas id="myCanvas"></canvas>
+        <div class="flex-grow overflow-hidden relative">
+          <div
+            id="pop-up"
+            class="absolute w-[80%] h-[30%] left-[10%] top-[10%] bg-white z-10 border-black border-2 overflow-hidden flex flex-col invisible"
+          >
+            <div class="overflow-auto flex-grow">
+              <label class="block m-2 font-mono" id="error-message"></label>
+            </div>
+            <div class="bg-white flex flex-row-reverse justify-around">
+              <button
+                class="flex-shrink inline-block px-2 py-1 bg-white rounded border border-black m-2"
+                id="pop-up-close"
+              >
+                Close
+              </button>
+            </div>
+          </div>
+          <div
+            id="canvasContainer"
+            class="flex-grow overflow-hidden bg-white relative"
+          >
+            <canvas id="myCanvas" class="z-0"></canvas>
+          </div>
         </div>
       </div>
     </div>

@@ -29,12 +29,7 @@ function main() {
     );
   };
 
-  socket.addEventListener("open", (event) => {
-    console.log("sent a mapping");
-    socket.send(
-      JSON.stringify({
-        type: "rule",
-        message: `
+  document.getElementById("editor").value = `
 device 0 osd.0 class hdd
 device 1 osd.1 class hdd
 device 2 osd.2 class ssd
@@ -97,8 +92,28 @@ rule hot {
     step chooseleaf firstn 0 type host
     step emit
 }
+`;
+  socket.addEventListener("open", (event) => {
+    let submitButton = document.getElementById("config-submit");
+    let editor = document.getElementById("editor");
+    submitButton.onclick = (e) => {
+      socket.send(
+        JSON.stringify({
+          type: "rule",
+          message: editor.value,
+        }),
+      );
+    };
 
-  `,
+    document.getElementById("pop-up-close").onclick = (e) => {
+      document.getElementById("pop-up").style.visibility = "hidden";
+    };
+
+    console.log("sent a mapping");
+    socket.send(
+      JSON.stringify({
+        type: "rule",
+        message: editor.value,
       }),
     );
   });
@@ -128,9 +143,17 @@ rule hot {
     let res = JSON.parse(event.data);
 
     switch (res.type) {
-      case "hierarchy":
+      case "hierarchy_fail": {
+        console.log(res.data.replace("\n", "<br>").replaceAll(" ", "&nbsp;"))
+        document.getElementById("error-message").innerHTML = res.data.replaceAll("\n", "<br>").replaceAll(" ", "&nbsp;");
+        document.getElementById("pop-up").style.visibility = "visible";
+        break;
+      }
+      case "hierarchy_success":
         const INIT_GAP = (mapCanvas.getWidth() - Bucket.width) / 2;
-        mapCanvas.clear();
+        mapCanvas.forEachObject((o) => {
+          mapCanvas.remove(o);
+        });
         state = {
           start: new Bucket("User", INIT_GAP, 30, null, mapCanvas),
           registry: new PrimaryRegistry(),
@@ -244,7 +267,7 @@ rule hot {
             }
             case "peering_success": {
               let info = state.peeringInfo.get(e.peering_id);
-              console.log("peering success: ", info)
+              console.log("peering success: ", info);
               setupMapping(
                 info.pg,
                 state.registry,
