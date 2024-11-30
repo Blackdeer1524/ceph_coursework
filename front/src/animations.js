@@ -1,5 +1,5 @@
 import { Circle, Textbox, Group } from "fabric";
-import { PrimaryRegistry } from "./connection";
+import { OSD, PrimaryRegistry } from "./connection";
 
 class Blob {
   static radius = 10;
@@ -22,6 +22,15 @@ class Blob {
       top: centerY - Blob.radius,
       radius: Blob.radius,
       fill: Blob.status2color[status],
+
+      lockMovementX: true,
+      lockMovementY: true,
+      lockRotation: true,
+      lockScalingX: true,
+      lockScalingY: true,
+      lockUniScaling: true,
+      lockSkewingX: true,
+      lockSkewingY: true,
     });
     let txt = new Textbox(`${objId}`, {
       left: centerX - Blob.radius,
@@ -31,6 +40,16 @@ class Blob {
       fontWeight: "bold",
       fill: "white",
       textAlign: "center",
+      
+      
+      lockMovementX: true,
+      lockMovementY: true,
+      lockRotation: true,
+      lockScalingX: true,
+      lockScalingY: true,
+      lockUniScaling: true,
+      lockSkewingX: true,
+      lockSkewingY: true,
     });
 
     this.g = new Group([c, txt], {});
@@ -63,7 +82,7 @@ function animatePath(objId, path, canvas, callback) {
     blob.g.animate(
       { left: endX - Blob.radius, top: endY - Blob.radius },
       {
-        duration: Math.max(lineLength * 5, 300),
+        duration: Math.max(lineLength * 2, 300),
         onChange: canvas.renderAll.bind(canvas),
         onComplete: () => {
           if (done) {
@@ -109,14 +128,24 @@ function animateBucketPath(objId, b, finalCallback) {
 /**
  *
  * @param {number} objId
+ * @param {Any} hierarchyRoot
+ * @param {function} callback
+ */
+export function animateSendFailure(objId, hierarchyRoot, callback) {
+  animateBlobFading(objId, hierarchyRoot, "failRecv", callback);
+}
+
+/**
+ *
+ * @param {number} objId
  * @param {number} pgId
  * @param {PrimaryRegistry} registry
  */
-export function animateSendItem(objId, pgId, registry) {
+export function animateSendItem(objId, pgId, registry, callback) {
   let pg = registry.get(pgId);
   let b = pg.osd.bucket;
   animateBucketPath(objId, b, () => {
-    animatePath(objId, pg.pathToBucket, pg.canvas, () => {});
+    animatePath(objId, pg.pathToBucket, pg.canvas, callback);
   });
 }
 
@@ -126,10 +155,10 @@ export function animateSendItem(objId, pgId, registry) {
  * @param {number} pgId
  * @param {PrimaryRegistry} registry
  */
-export function animateSendToReplicas(objId, pgId, registry) {
+export function animateSendToReplicas(objId, pgId, registry, callback) {
   let primary = registry.get(pgId);
   primary.connectors.forEach((path) =>
-    animatePath(objId, path, primary.canvas, () => {}),
+    animatePath(objId, path, primary.canvas, callback),
   );
 }
 
@@ -138,37 +167,24 @@ export function animateSendToReplicas(objId, pgId, registry) {
  * @param {number} objId
  * @param {number} pgId
  * @param {string} osd
- * @param {PrimaryRegistry} registry
+ * @param {Map<string, OSD>} name2osd
  * @param {"successRecv" | "failRecv"} status
  */
-export function animateSendStatus(objId, pgId, osdName, registry, status) {
-  let primary = registry.get(pgId);
-  let canvas = primary.canvas;
+export function animateSendStatus(objId, pgId, osdName, name2osd, status) {
+  let osd = name2osd.get(osdName);
+  let target = osd.pgs.get(pgId);
 
-  /**
-   * @type {PG | null}
-   */
-  let target = null;
-  if (primary.osd.name == osdName) {
-    target = primary;
-  } else {
-    for (let replica of primary.replicas) {
-      if (replica.osd.name == osdName) {
-        target = replica;
-        break;
-      }
-    }
-  }
-  if (target === null) {
-    throw Error(`couldn't find ${pgId} on ${osdName}`);
-  }
+  animateBlobFading(objId, target, status, () => {});
+}
 
+function animateBlobFading(objId, target, status, callback) {
   let b = new Blob(
     objId,
     target.drawnObj.left + target.drawnObj.width / 2,
     target.drawnObj.top + target.drawnObj.height / 2,
     status,
   );
+  let canvas = target.canvas;
   canvas.add(b.g);
 
   b.g.animate(
@@ -178,6 +194,7 @@ export function animateSendStatus(objId, pgId, osdName, registry, status) {
       onChange: canvas.renderAll.bind(canvas),
       onComplete: function () {
         canvas.remove(b.g);
+        callback();
       },
     },
   );

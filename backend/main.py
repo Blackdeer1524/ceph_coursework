@@ -11,6 +11,7 @@ from crush import Tunables
 from mapping import (
     EOSDFailed,
     EOSDRecovered,
+    ESendFailure,
     PlacementGroupID_T,
     DeviceID_T,
     WeightT,
@@ -75,6 +76,7 @@ def process_pending_events(q: list[Event]):
                 | EPeeringFailure()
                 | EOSDFailed() 
                 | EOSDRecovered()
+                | ESendFailure()
             ):
                 res.append(top.tag.to_json())
     return cur_time, res
@@ -98,8 +100,8 @@ def setup_event_queue(r: ParserResult) -> SetupResult:
         timestep=20,
         timesteps_to_peer=2,
         timeout=70,
-        user_conn_speed=defaultdict(lambda: 30),
-        conn_speed=defaultdict(lambda: 30),
+        user_conn_speed=defaultdict(lambda: 20),
+        conn_speed=defaultdict(lambda: 20),
         failure_proba=defaultdict(lambda: 0.05),
         alive_intervals_per_device={},
     )
@@ -113,7 +115,7 @@ def setup_event_queue(r: ParserResult) -> SetupResult:
         )
         init_weights[d.info.id] = d.weight
 
-    pgs = PGList(c=[PlacementGroup(PlacementGroupID_T(i)) for i in range(12)])
+    pgs = PGList(c=[PlacementGroup(PlacementGroupID_T(i)) for i in range(8)])
 
     cfg = PoolParams(size=3, min_size=2, pgs=pgs)
     tunables = Tunables(5)
@@ -145,9 +147,13 @@ async def handler(websocket):
                         "data": hierarchy ,
                     }))
             case "step":
-                if setup is not None:
-                    time, messages = process_pending_events(setup.queue)
-                    await websocket.send(json.dumps({"type": "events", "timestamp": time, "events": messages}))
+                assert setup is not None
+                time, messages = process_pending_events(setup.queue)
+                await websocket.send(json.dumps({"type": "events", "timestamp": time, "events": messages}))
+            case "insert":
+                assert setup is not None
+                for event in setup.pgs.object_insert(setup.context, m["id"]):
+                    heapq.heappush(setup.queue, event) 
             case other:
                 print(other)
 

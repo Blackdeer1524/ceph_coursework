@@ -1,4 +1,11 @@
-import { Canvas, Point, Rect } from "fabric";
+import { Canvas, Point, Rect, FabricObject } from "fabric";
+
+FabricObject.prototype.objectCaching = false;
+FabricObject.prototype.statefullCache = false;
+FabricObject.prototype.noScaleCache = true;
+FabricObject.prototype.needsItsOwnCache = (f) => {
+  return false;
+};
 
 const STATE_IDLE = "idle";
 const STATE_PANNING = "panning";
@@ -79,7 +86,16 @@ Canvas.prototype.toggleDragMode = function (dragMode) {
 };
 // END
 
-export const mapCanvas = new Canvas("myCanvas");
+export const mapCanvas = new Canvas("myCanvas", {
+  // renderOnAddRemove: false,
+  preserveObjectStacking: true,
+  targetFindTolerance: 4,
+  perPixelTargetFind: true,
+  skipOffscreen: true,
+  selection: false, // disable group selection
+  stateful: false, // Boolean, Indicates whether objects' state should be saved
+  skipTargetFind: false, // find target on Hover
+});
 mapCanvas.backgroundColor = "#ffffff";
 mapCanvas.toggleDragMode(true);
 

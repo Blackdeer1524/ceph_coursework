@@ -13,25 +13,12 @@ import {
   animateSendStatus,
   animateSendItem,
   animateSendToReplicas,
+  animateSendFailure,
 } from "./animations";
 
 import { Bucket } from "./connection";
 
-let timestampLabel = document.getElementById("time-label")
-
-function main() {
-  let simStart = document.getElementById("sim-start");
-  var socket = new WebSocket("ws://localhost:8080");
-
-  simStart.onclick = (e) => {
-    socket.send(
-      JSON.stringify({
-        type: "step",
-      }),
-    );
-  };
-
-  document.getElementById("editor").value = `
+const DEFAULT_CONFIG = `
 device 0 osd.0 class hdd
 device 1 osd.1 class hdd
 device 2 osd.2 class ssd
@@ -95,15 +82,44 @@ rule hot {
     step emit
 }
 `;
+
+let timestampLabel = document.getElementById("time-label");
+
+function main() {
+  let simStart = document.getElementById("sim-start");
+  var socket = new WebSocket("ws://localhost:8080");
+
+  simStart.onclick = (e) => {
+    socket.send(
+      JSON.stringify({
+        type: "step",
+      }),
+    );
+  };
+
+  document.getElementById("editor").value = DEFAULT_CONFIG;
   socket.addEventListener("open", (event) => {
+    let objId = 0;
     let submitButton = document.getElementById("config-submit");
     let editor = document.getElementById("editor");
     submitButton.onclick = (e) => {
-      timestampLabel.innerHTML = 0
+      objId = 0;
+      timestampLabel.innerHTML = 0;
       socket.send(
         JSON.stringify({
           type: "rule",
           message: editor.value,
+        }),
+      );
+    };
+
+    let insertButton = document.getElementById("insert-button");
+    insertButton.onclick = (e) => {
+      ++objId;
+      socket.send(
+        JSON.stringify({
+          type: "insert",
+          id: objId,
         }),
       );
     };
@@ -141,15 +157,16 @@ rule hot {
    * @type {State | null}
    */
   let state = null;
-  
 
   socket.addEventListener("message", (event) => {
     let res = JSON.parse(event.data);
 
     switch (res.type) {
       case "hierarchy_fail": {
-        console.log(res.data.replace("\n", "<br>").replaceAll(" ", "&nbsp;"))
-        document.getElementById("error-message").innerHTML = res.data.replaceAll("\n", "<br>").replaceAll(" ", "&nbsp;");
+        console.log(res.data.replace("\n", "<br>").replaceAll(" ", "&nbsp;"));
+        document.getElementById("error-message").innerHTML = res.data
+          .replaceAll("\n", "<br>")
+          .replaceAll(" ", "&nbsp;");
         document.getElementById("pop-up").style.visibility = "visible";
         break;
       }
@@ -180,31 +197,49 @@ rule hot {
           return;
         }
         let timestamp = res.timestamp;
-        timestampLabel.innerHTML = timestamp
+        timestampLabel.innerHTML = timestamp;
         let events = res.events;
+        console.log("=====================");
         for (let e of events) {
+          console.log(e.type);
           switch (e.type) {
+            case "send_fail": {
+              simStart.disabled = true;
+              animateSendFailure(e.objId, state.start, () => {
+                simStart.disabled = false;
+              });
+              break;
+            }
             case "primary_recv_success": {
               let primary = state.registry.get(e.pg);
-              animateSendStatus(
-                e.objId,
-                e.pg,
-                primary.osd.name,
-                state.registry,
-                "successRecv",
-              );
-              animateSendToReplicas(e.objId, e.pg, state.registry);
+              simStart.disabled = true;
+              animateSendItem(e.objId, e.pg, state.registry, () => {
+                animateSendStatus(
+                  e.objId,
+                  e.pg,
+                  primary.osd.name,
+                  state.name2osd,
+                  "successRecv",
+                );
+                animateSendToReplicas(e.objId, e.pg, state.registry, () => {
+                  simStart.disabled = false;
+                });
+              });
               break;
             }
             case "primary_recv_fail": {
               let primary = state.registry.get(e.pg);
-              animateSendStatus(
-                e.objId,
-                e.pg,
-                primary.osd.name,
-                state.registry,
-                "failRecv",
-              );
+              simStart.disabled = true;
+              animateSendItem(e.objId, e.pg, state.registry, () => {
+                animateSendStatus(
+                  e.objId,
+                  e.pg,
+                  primary.osd.name,
+                  state.name2osd,
+                  "failRecv",
+                );
+                simStart.disabled = false;
+              });
               break;
             }
             case "primary_recv_ack": {
@@ -213,7 +248,7 @@ rule hot {
                 e.objId,
                 e.pg,
                 primary.osd.name,
-                state.registry,
+                state.name2osd,
                 "successRecv",
               );
               break;
@@ -224,9 +259,18 @@ rule hot {
                 e.objId,
                 e.pg,
                 primary.osd.name,
-                state.registry,
+                state.name2osd,
                 "failRecv",
               );
+              for (let replica of primary.replicas) {
+                animateSendStatus(
+                  e.objId,
+                  e.pg,
+                  replica.osd.name,
+                  state.name2osd,
+                  "failRecv",
+                );
+              }
               break;
             }
             case "replica_recv_ack": {
@@ -234,7 +278,7 @@ rule hot {
                 e.objId,
                 e.pg,
                 e.osd,
-                state.registry,
+                state.name2osd,
                 "successRecv",
               );
               break;
@@ -244,7 +288,7 @@ rule hot {
                 e.objId,
                 e.pg,
                 e.osd,
-                state.registry,
+                state.name2osd,
                 "successRecv",
               );
               break;
@@ -254,7 +298,7 @@ rule hot {
                 e.objId,
                 e.pg,
                 e.osd,
-                state.registry,
+                state.name2osd,
                 "failRecv",
               );
               break;

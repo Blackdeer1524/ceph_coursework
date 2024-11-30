@@ -1,3 +1,4 @@
+from collections import defaultdict
 from dataclasses import dataclass, field
 from enum import Enum, auto
 from typing import (
@@ -48,6 +49,14 @@ class EPrimaryRecvAcknowledged:
     def to_json(self):
         return {"type": "primary_recv_ack", "pg": self.pg, "objId": self.obj}
 
+@dataclass(frozen=True)
+class ESendFailure:
+    obj: ObjectID_T
+    reason: str
+
+    def to_json(self):
+        return {"type": "send_fail", "objId": self.obj, "reason": self.reason}
+    
 
 @dataclass(frozen=True)
 class EPrimaryRecvFailure:
@@ -178,6 +187,7 @@ class EOSDRecovered:
 
 EventTag = (
     EMainloopInteration
+    | ESendFailure
     | EPrimaryRecvSuccess
     | EPrimaryRecvFailure
     | EPrimaryRecvAcknowledged
@@ -193,12 +203,27 @@ EventTag = (
 )
 
 
-@dataclass(order=True)
+@dataclass
 class Event:
     tag: EventTag = field(compare=False)
     time: int
     callback: Callable[[], None] | None = field(compare=False, default=None, repr=False)
-
+    
+    def __le__(self, other: "Event"):
+        return self < other
+    
+    def __lt__(self, other: "Event"):
+        if self.time < other.time:
+            return True
+        elif self.time == other.time: 
+            if isinstance(self.tag, EPeeringSuccess):
+                if isinstance(other.tag, EPeeringSuccess):
+                    return False
+                else:
+                    return True
+            return False
+        return False
+        
 
 def test_proba(p: float, *args: Hashable) -> bool:
     h = hash(args) & 0xFFFF
@@ -237,7 +262,7 @@ class Context:
 @dataclass
 class PlacementGroup:
     id: PlacementGroupID_T
-    logs: dict[DeviceID_T, LogData] = field(init=False, default_factory=dict)
+    logs: dict[DeviceID_T, LogData] = field(init=False, default_factory=lambda: defaultdict(LogData))
     last_sync: int = field(init=False, default=-1)
     _maps: list[list[Device]] = field(init=False, default_factory=list)
     is_peering: bool = field(init=False, default=False)
@@ -271,27 +296,31 @@ class PlacementGroup:
     def updelsert(
         self, context: Context, obj_id: ObjectID_T, op_type: Operation.OpType
     ) -> list[Event]:
+        if len(self.maps) == 0 or len(self.maps[-1]) == 0:
+            return [Event(ESendFailure(obj_id, "bad map"), context.current_time)]
         cur_map = self.maps[-1]
 
         primary = cur_map[0]
-        if not test_proba(
+        max_time = primary_write_time = (
+            context.current_time + context.user_conn_speed[primary.info.id]
+        )
+        
+        if not context.alive_intervals_per_device[primary.info.id].check_at_time(
+           primary_write_time 
+        ) or not test_proba(
             context.failure_proba[primary.info.id],
             context.current_time,
             obj_id,
             primary.info.id,
-        ) or not context.alive_intervals_per_device[primary.info.id].check_at_time(
-            context.current_time
         ):
             return [
                 Event(
                     EPrimaryRecvFailure(obj_id, self.id),
-                    context.current_time + context.timeout,
+                    primary_write_time,
                 )
             ]
 
-        max_time = primary_write_time = (
-            context.current_time + context.user_conn_speed[primary.info.id]
-        )
+        print(f"osd.{primary.info.id} is alive at {primary_write_time}")
         res: list[Event] = [
             Event(
                 EPrimaryRecvSuccess(obj_id, self.id),
@@ -305,14 +334,15 @@ class PlacementGroup:
         secondary = cur_map[1:]
         failed = False
         for d in secondary:
-            if test_proba(
+            if context.alive_intervals_per_device[d.info.id].check_at_time(
+               primary_write_time + context.conn_speed[primary.info.id, d.info.id]
+            ) and test_proba(
                 context.failure_proba[d.info.id],
                 context.current_time,
                 obj_id,
                 d.info.id,
-            ) and context.alive_intervals_per_device[primary.info.id].check_at_time(
-                context.current_time
             ):
+                print(f"osd.{d.info.id} is alive at {primary_write_time + context.conn_speed[primary.info.id, d.info.id]}")
                 res.append(
                     Event(
                         EReplicaRecvSuccess(obj_id, self.id, d.info.id),
@@ -346,12 +376,12 @@ class PlacementGroup:
                 res.append(
                     Event(
                         EReplicaRecvFailure(obj_id, self.id, d.info.id),
-                        primary_write_time + context.timeout,
+                        primary_write_time + context.conn_speed[primary.info.id, d.info.id],
                     )
                 )
                 max_time = max(
                     max_time,
-                    primary_write_time + context.timeout,
+                    primary_write_time + context.conn_speed[primary.info.id, d.info.id],
                 )
 
         if failed:
@@ -382,15 +412,15 @@ class PGList:
 
     def object_insert(self, context: Context, obj_id: ObjectID_T):
         h = hash(str(obj_id)) % len(self._col)
-        self._col[h].updelsert(context, obj_id, Operation.OpType.INSERT)
+        return self._col[h].updelsert(context, obj_id, Operation.OpType.INSERT)
 
     def object_update(self, context: Context, obj_id: ObjectID_T):
         h = hash(str(obj_id)) % len(self._col)
-        self._col[h].updelsert(context, obj_id, Operation.OpType.UPDATE)
+        return self._col[h].updelsert(context, obj_id, Operation.OpType.UPDATE)
 
     def object_delete(self, context: Context, obj_id: ObjectID_T):
         h = hash(str(obj_id)) % len(self._col)
-        self._col[h].updelsert(context, obj_id, Operation.OpType.DELETE)
+        return self._col[h].updelsert(context, obj_id, Operation.OpType.DELETE)
 
 
 @dataclass
@@ -411,8 +441,6 @@ def map_pg(
     events: list[Event] = []
     for pg in cfg.pgs:
         res = apply(pg.id, root, rule, cfg.size, tunables)
-        if pg.id in (PlacementGroupID_T(1), PlacementGroupID_T(3)):
-            print(res)
         assert not isinstance(res, str), res
         if pg.is_peering or (len(pg.maps) > 0 and pg.maps[-1] == res):
             continue

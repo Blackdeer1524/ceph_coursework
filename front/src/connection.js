@@ -103,6 +103,14 @@ export class OSD {
       fill: "#e1e1e1",
       rx: 5,
       ry: 5,
+      lockMovementX: true,
+      lockMovementY: true,
+      lockRotation: true,
+      lockScalingX: true,
+      lockScalingY: true,
+      lockUniScaling: true,
+      lockSkewingX: true,
+      lockSkewingY: true,
     });
     this.drawnText = new Textbox(this.name, {
       top: posY,
@@ -110,6 +118,15 @@ export class OSD {
       width: OSD.width,
       fontSize: PGBoxHeight,
       textAlign: "center",
+
+      lockMovementX: true,
+      lockMovementY: true,
+      lockRotation: true,
+      lockScalingX: true,
+      lockScalingY: true,
+      lockUniScaling: true,
+      lockSkewingX: true,
+      lockSkewingY: true,
     });
     this.canvas.add(this.drawnObj);
     this.canvas.add(this.drawnText);
@@ -263,6 +280,15 @@ export class Bucket {
       fill: "green",
       rx: 5,
       ry: 5,
+
+      lockMovementX: true,
+      lockMovementY: true,
+      lockRotation: true,
+      lockScalingX: true,
+      lockScalingY: true,
+      lockUniScaling: true,
+      lockSkewingX: true,
+      lockSkewingY: true,
     });
     this.drawnText = new Textbox(this.name, {
       left: posX,
@@ -271,6 +297,15 @@ export class Bucket {
       fontSize: Bucket.height / 4,
       textAlign: "center",
       fill: "white",
+
+      lockMovementX: true,
+      lockMovementY: true,
+      lockRotation: true,
+      lockScalingX: true,
+      lockScalingY: true,
+      lockUniScaling: true,
+      lockSkewingX: true,
+      lockSkewingY: true,
     });
     this.canvas.add(this.drawnObj);
     this.canvas.add(this.drawnText);
@@ -345,7 +380,7 @@ export class Bucket {
 
 const SPACE_BETWEEN_OSD_COLS = 60;
 const STEP_Y_BETWEEN = 40;
-export const PGCout = 12;
+export const PGCout = 8;
 const PGBoxHeight = 20;
 const PGBoxGap = 3;
 
@@ -469,6 +504,14 @@ class PG {
       width: OSD.width - 2 * PGBoxGap,
       height: PGBoxHeight,
       fill: "#f6f6f6",
+      lockMovementX: true,
+      lockMovementY: true,
+      lockRotation: true,
+      lockScalingX: true,
+      lockScalingY: true,
+      lockUniScaling: true,
+      lockSkewingX: true,
+      lockSkewingY: true,
     });
     this.canvas.add(this.drawnObj);
 
@@ -476,6 +519,15 @@ class PG {
       top: posY,
       left: posX + PGBoxGap,
       fontSize: PGBoxHeight,
+
+      lockMovementX: true,
+      lockMovementY: true,
+      lockRotation: true,
+      lockScalingX: true,
+      lockScalingY: true,
+      lockUniScaling: true,
+      lockSkewingX: true,
+      lockSkewingY: true,
     });
     this.canvas.add(this.drawnText);
 
@@ -509,7 +561,7 @@ class PG {
       this.interPgConnAlloc.free(this.connectorID);
       this.connectorID = null;
       this.connectorColor = null;
-      this.replicas = []
+      this.replicas = [];
     }
 
     if (this.pathToBucket !== null) {
@@ -538,8 +590,8 @@ class PG {
     );
     this.connectors = [];
 
-    let myReplicas = this.replicas
-    this.replicas = []
+    let myReplicas = this.replicas;
+    this.replicas = [];
     myReplicas.forEach((c) => this.connectReplica(c));
 
     if (this.pathToBucket !== null) {
@@ -852,6 +904,10 @@ export function drawHierarchy(
  * @param {Map<string, OSD>} name2osd
  */
 export function setupMapping(pgId, registry, map, name2osd) {
+  if (map.length == 0) {
+    return;
+  }
+
   if (registry.has(pgId)) {
     registry.remove(pgId);
   }
