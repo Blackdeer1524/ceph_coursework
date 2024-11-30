@@ -17,6 +17,8 @@ import {
 
 import { Bucket } from "./connection";
 
+let timestampLabel = document.getElementById("time-label")
+
 function main() {
   let simStart = document.getElementById("sim-start");
   var socket = new WebSocket("ws://localhost:8080");
@@ -97,6 +99,7 @@ rule hot {
     let submitButton = document.getElementById("config-submit");
     let editor = document.getElementById("editor");
     submitButton.onclick = (e) => {
+      timestampLabel.innerHTML = 0
       socket.send(
         JSON.stringify({
           type: "rule",
@@ -138,6 +141,7 @@ rule hot {
    * @type {State | null}
    */
   let state = null;
+  
 
   socket.addEventListener("message", (event) => {
     let res = JSON.parse(event.data);
@@ -176,6 +180,7 @@ rule hot {
           return;
         }
         let timestamp = res.timestamp;
+        timestampLabel.innerHTML = timestamp
         let events = res.events;
         for (let e of events) {
           switch (e.type) {

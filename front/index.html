@@ -9,20 +9,27 @@
   <body>
     <div class="h-[100vh] w-[100vw] flex">
       <div
-        class="flex flex-col sticky left-0 top-0 bottom-0 bg-red-600 w-[30%]"
+        class="flex flex-col left-0 top-0 bottom-0 w-[30%] border-r border-black"
       >
         <div class="flex-grow overflow-x-auto overflow-y-hidden m-1">
           <textarea class="w-[80ch] h-full" id="editor"></textarea>
         </div>
-        <div class="bg-green-300 p-1 flex flex-row-reverse gap-2">
+        <div class="p-1 flex flex-row-reverse gap-2 border-t border-black">
           <button id="config-submit">Submit</button>
         </div>
       </div>
       <div class="bg-blue-300 w-[70%] flex flex-col">
-        <div class="bg-pink-300 p-1 flex flex-row-reverse gap-2">
-          <button id="sim-start" class="">Step</button>
+        <div
+          class="bg-white p-1 flex flex-row-reverse gap-2 border-b border-black"
+        >
+          <button id="sim-start" class="border">Step</button>
         </div>
         <div class="flex-grow overflow-hidden relative">
+          <div
+            class="absolute z-10 left-5 top-5 bg-white rounded border p-2 border-black"
+          >
+            Time: <label id="time-label" class="font-mono">0</label>
+          </div>
           <div
             id="pop-up"
             class="absolute w-[80%] h-[30%] left-[10%] top-[10%] bg-white z-10 border-black border-2 overflow-hidden flex flex-col invisible"

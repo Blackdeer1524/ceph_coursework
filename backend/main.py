@@ -104,7 +104,7 @@ def setup_event_queue(r: ParserResult) -> SetupResult:
         alive_intervals_per_device={},
     )
 
-    DEATH_PROBA = 0.05
+    DEATH_PROBA = 0.25
 
     init_weights: dict[DeviceID_T, WeightT] = {}
     for d in r.devices.values():
