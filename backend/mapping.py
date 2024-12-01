@@ -49,6 +49,7 @@ class EPrimaryRecvAcknowledged:
     def to_json(self):
         return {"type": "primary_recv_ack", "pg": self.pg, "objId": self.obj}
 
+
 @dataclass(frozen=True)
 class ESendFailure:
     obj: ObjectID_T
@@ -56,7 +57,7 @@ class ESendFailure:
 
     def to_json(self):
         return {"type": "send_fail", "objId": self.obj, "reason": self.reason}
-    
+
 
 @dataclass(frozen=True)
 class EPrimaryRecvFailure:
@@ -164,25 +165,21 @@ class EPeeringFailure:
 class EMainloopInteration:
     callback_results: list["Event"]
 
+
 @dataclass
 class EOSDFailed:
     osd: str
-    
+
     def to_json(self):
-        return {
-            "type": "osd_failed",
-            "osd": self.osd
-        }
+        return {"type": "osd_failed", "osd": self.osd}
+
 
 @dataclass
 class EOSDRecovered:
     osd: str
-    
+
     def to_json(self):
-        return {
-            "type": "osd_recovered",
-            "osd": self.osd
-        }
+        return {"type": "osd_recovered", "osd": self.osd}
 
 
 EventTag = (
@@ -208,14 +205,14 @@ class Event:
     tag: EventTag = field(compare=False)
     time: int
     callback: Callable[[], None] | None = field(compare=False, default=None, repr=False)
-    
+
     def __le__(self, other: "Event"):
         return self < other
-    
+
     def __lt__(self, other: "Event"):
         if self.time < other.time:
             return True
-        elif self.time == other.time: 
+        elif self.time == other.time:
             if isinstance(self.tag, EPeeringSuccess):
                 if isinstance(other.tag, EPeeringSuccess):
                     return False
@@ -223,7 +220,7 @@ class Event:
                     return True
             return False
         return False
-        
+
 
 def test_proba(p: float, *args: Hashable) -> bool:
     h = hash(args) & 0xFFFF
@@ -262,7 +259,9 @@ class Context:
 @dataclass
 class PlacementGroup:
     id: PlacementGroupID_T
-    logs: dict[DeviceID_T, LogData] = field(init=False, default_factory=lambda: defaultdict(LogData))
+    logs: dict[DeviceID_T, LogData] = field(
+        init=False, default_factory=lambda: defaultdict(LogData)
+    )
     last_sync: int = field(init=False, default=-1)
     _maps: list[list[Device]] = field(init=False, default_factory=list)
     is_peering: bool = field(init=False, default=False)
@@ -304,9 +303,9 @@ class PlacementGroup:
         max_time = primary_write_time = (
             context.current_time + context.user_conn_speed[primary.info.id]
         )
-        
+
         if not context.alive_intervals_per_device[primary.info.id].check_at_time(
-           primary_write_time 
+            primary_write_time
         ) or not test_proba(
             context.failure_proba[primary.info.id],
             context.current_time,
@@ -335,14 +334,16 @@ class PlacementGroup:
         failed = False
         for d in secondary:
             if context.alive_intervals_per_device[d.info.id].check_at_time(
-               primary_write_time + context.conn_speed[primary.info.id, d.info.id]
+                primary_write_time + context.conn_speed[primary.info.id, d.info.id]
             ) and test_proba(
                 context.failure_proba[d.info.id],
                 context.current_time,
                 obj_id,
                 d.info.id,
             ):
-                print(f"osd.{d.info.id} is alive at {primary_write_time + context.conn_speed[primary.info.id, d.info.id]}")
+                print(
+                    f"osd.{d.info.id} is alive at {primary_write_time + context.conn_speed[primary.info.id, d.info.id]}"
+                )
                 res.append(
                     Event(
                         EReplicaRecvSuccess(obj_id, self.id, d.info.id),
@@ -376,7 +377,8 @@ class PlacementGroup:
                 res.append(
                     Event(
                         EReplicaRecvFailure(obj_id, self.id, d.info.id),
-                        primary_write_time + context.conn_speed[primary.info.id, d.info.id],
+                        primary_write_time
+                        + context.conn_speed[primary.info.id, d.info.id],
                     )
                 )
                 max_time = max(
@@ -515,14 +517,18 @@ def get_iteration_event(
             if intervals.check_at_time(context.current_time):
                 if devices[d_id].weight != init_weights[d_id]:
                     devices[d_id].update_weight(init_weights[d_id])
-                    tag.callback_results.append(Event(EOSDRecovered(f"osd.{d_id}"), context.current_time))
+                    tag.callback_results.append(
+                        Event(EOSDRecovered(f"osd.{d_id}"), context.current_time)
+                    )
             else:
                 if devices[d_id].weight == init_weights[d_id]:
                     devices[d_id].update_weight(OutOfClusterWeight)
-                    tag.callback_results.append(Event(EOSDFailed(f"osd.{d_id}"), context.current_time))
-        
+                    tag.callback_results.append(
+                        Event(EOSDFailed(f"osd.{d_id}"), context.current_time)
+                    )
+
         tag.callback_results.extend(map_pg(root, rule, tunables, cfg, context))
-        
+
         context.do_time_step()
         tag.callback_results.append(
             get_iteration_event(

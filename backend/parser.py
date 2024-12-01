@@ -225,8 +225,8 @@ class ParserResult:
     rules: list[Rule]
 
 
-class ParsingError(Exception):
-    ...
+class ParsingError(Exception): ...
+
 
 class Parser:
     def __init__(self, text: str):
@@ -354,12 +354,12 @@ class Parser:
 
         col_prefix = f"{self.row} | "
         formated_msg = "{}{}\n{}^\n{}{}\n".format(
-                    col_prefix,
-                    self.text[self.last_newline_pos + 1 : right_newline],
-                    " " * (len(col_prefix) + self.col - 1),
-                    " " * len(col_prefix),
-                    msg,
-                    )
+            col_prefix,
+            self.text[self.last_newline_pos + 1 : right_newline],
+            " " * (len(col_prefix) + self.col - 1),
+            " " * len(col_prefix),
+            msg,
+        )
 
         self.report_error(formated_msg)
 

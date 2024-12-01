@@ -74,7 +74,7 @@ def process_pending_events(q: list[Event]):
                 | EPeeringStart()
                 | EPeeringSuccess()
                 | EPeeringFailure()
-                | EOSDFailed() 
+                | EOSDFailed()
                 | EOSDRecovered()
                 | ESendFailure()
             ):
@@ -135,25 +135,37 @@ async def handler(websocket):
                 try:
                     r = Parser(m["message"]).parse()
                 except ParsingError as e:
-                    await websocket.send(json.dumps({
-                        "type": "hierarchy_fail",
-                        "data": str(e) ,
-                    }))
+                    await websocket.send(
+                        json.dumps(
+                            {
+                                "type": "hierarchy_fail",
+                                "data": str(e),
+                            }
+                        )
+                    )
                 else:
                     hierarchy = r.root.to_json()
                     setup = setup_event_queue(r)
-                    await websocket.send(json.dumps({
-                        "type": "hierarchy_success",
-                        "data": hierarchy ,
-                    }))
+                    await websocket.send(
+                        json.dumps(
+                            {
+                                "type": "hierarchy_success",
+                                "data": hierarchy,
+                            }
+                        )
+                    )
             case "step":
                 assert setup is not None
                 time, messages = process_pending_events(setup.queue)
-                await websocket.send(json.dumps({"type": "events", "timestamp": time, "events": messages}))
+                await websocket.send(
+                    json.dumps(
+                        {"type": "events", "timestamp": time, "events": messages}
+                    )
+                )
             case "insert":
                 assert setup is not None
                 for event in setup.pgs.object_insert(setup.context, m["id"]):
-                    heapq.heappush(setup.queue, event) 
+                    heapq.heappush(setup.queue, event)
             case other:
                 print(other)
 
