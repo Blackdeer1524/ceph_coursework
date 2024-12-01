@@ -36,18 +36,30 @@ PlacementGroupID_T = NewType("PlacementGroupID_T", int)
 class EPrimaryRecvSuccess:
     obj: ObjectID_T
     pg: PlacementGroupID_T
+    osd: DeviceID_T
 
     def to_json(self):
-        return {"type": "primary_recv_success", "pg": self.pg, "objId": self.obj}
+        return {
+            "type": "primary_recv_success",
+            "pg": self.pg,
+            "objId": self.obj,
+            "osd": f"osd.{self.osd}",
+        }
 
 
 @dataclass(frozen=True)
 class EPrimaryRecvAcknowledged:
     obj: ObjectID_T
     pg: PlacementGroupID_T
+    osd: DeviceID_T
 
     def to_json(self):
-        return {"type": "primary_recv_ack", "pg": self.pg, "objId": self.obj}
+        return {
+            "type": "primary_recv_ack",
+            "pg": self.pg,
+            "objId": self.obj,
+            "osd": f"osd.{self.osd}",
+        }
 
 
 @dataclass(frozen=True)
@@ -63,18 +75,30 @@ class ESendFailure:
 class EPrimaryRecvFailure:
     obj: ObjectID_T
     pg: PlacementGroupID_T
+    osd: DeviceID_T
 
     def to_json(self):
-        return {"type": "primary_recv_fail", "pg": self.pg, "objId": self.obj}
+        return {
+            "type": "primary_recv_fail",
+            "pg": self.pg,
+            "objId": self.obj,
+            "osd": f"osd.{self.osd}",
+        }
 
 
 @dataclass(frozen=True)
 class EPrimaryReplicationFail:
     obj: ObjectID_T
     pg: PlacementGroupID_T
+    osd: DeviceID_T
 
     def to_json(self):
-        return {"type": "primary_replication_fail", "pg": self.pg, "objId": self.obj}
+        return {
+            "type": "primary_replication_fail",
+            "pg": self.pg,
+            "objId": self.obj,
+            "osd": f"osd.{self.osd}",
+        }
 
 
 @dataclass(frozen=True)
@@ -314,7 +338,7 @@ class PlacementGroup:
         ):
             return [
                 Event(
-                    EPrimaryRecvFailure(obj_id, self.id),
+                    EPrimaryRecvFailure(obj_id, self.id, primary.info.id),
                     primary_write_time,
                 )
             ]
@@ -322,7 +346,7 @@ class PlacementGroup:
         print(f"osd.{primary.info.id} is alive at {primary_write_time}")
         res: list[Event] = [
             Event(
-                EPrimaryRecvSuccess(obj_id, self.id),
+                EPrimaryRecvSuccess(obj_id, self.id, primary.info.id),
                 primary_write_time,
                 lambda: self.logs[primary.info.id].ops.append(
                     Operation(obj_id, op_type)
@@ -387,11 +411,16 @@ class PlacementGroup:
                 )
 
         if failed:
-            res.append(Event(EPrimaryReplicationFail(obj_id, self.id), max_time + 1))
+            res.append(
+                Event(
+                    EPrimaryReplicationFail(obj_id, self.id, primary.info.id),
+                    max_time + 1,
+                )
+            )
         else:
             res.append(
                 Event(
-                    EPrimaryRecvAcknowledged(obj_id, self.id),
+                    EPrimaryRecvAcknowledged(obj_id, self.id, primary.info.id),
                     max_time + 1,
                 )
             )

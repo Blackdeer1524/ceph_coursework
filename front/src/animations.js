@@ -40,8 +40,7 @@ class Blob {
       fontWeight: "bold",
       fill: "white",
       textAlign: "center",
-      
-      
+
       lockMovementX: true,
       lockMovementY: true,
       lockRotation: true,
@@ -136,26 +135,36 @@ export function animateSendFailure(objId, hierarchyRoot, callback) {
 }
 
 /**
- *
  * @param {number} objId
  * @param {number} pgId
- * @param {PrimaryRegistry} registry
+ * @param {OSD} osd
  */
-export function animateSendItem(objId, pgId, registry, callback) {
-  let pg = registry.get(pgId);
-  let b = pg.osd.bucket;
-  animateBucketPath(objId, b, () => {
-    animatePath(objId, pg.pathToBucket, pg.canvas, callback);
+export function animateSendToPrimary(objId, pgId, osd, sendToReplicasCallback) {
+  animateBucketPath(objId, osd.bucket, () => {
+    let mapPrimaryPG = osd.pgs.get(pgId);
+    mapPrimaryPG.connectToBucket();
+    animatePath(objId, mapPrimaryPG.pathToBucket, osd.canvas, () => {
+      sendToReplicasCallback();
+      mapPrimaryPG.releaseBucketConnect();
+    });
   });
 }
 
 /**
- *
- * @param {number} objId
- * @param {number} pgId
- * @param {PrimaryRegistry} registry
+ * 
+ * @param {number} objId 
+ * @param {number} pgId 
+ * @param {string[]} newMap 
+ * @param {Map<string, OSD>} name2osd
+ * @param {function} callback 
  */
-export function animateSendToReplicas(objId, pgId, registry, callback) {
+export function animateSendToReplicas(objId, pgId, newMap, name2osd, callback) {
+  let primaryOSD = name2osd.get(newMap[0])
+  primaryOSD.connect
+  
+  
+  
+  
   let primary = registry.get(pgId);
   primary.connectors.forEach((path) =>
     animatePath(objId, path, primary.canvas, callback),

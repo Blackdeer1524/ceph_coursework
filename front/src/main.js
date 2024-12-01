@@ -11,7 +11,7 @@ import {
 
 import {
   animateSendStatus,
-  animateSendItem,
+  animateSendToPrimary,
   animateSendToReplicas,
   animateSendFailure,
 } from "./animations";
@@ -213,7 +213,7 @@ function main() {
             case "primary_recv_success": {
               let primary = state.registry.get(e.pg);
               simStart.disabled = true;
-              animateSendItem(e.objId, e.pg, state.registry, () => {
+              animateSendToPrimary(e.objId, e.pg, state.registry, () => {
                 animateSendStatus(
                   e.objId,
                   e.pg,
@@ -230,7 +230,7 @@ function main() {
             case "primary_recv_fail": {
               let primary = state.registry.get(e.pg);
               simStart.disabled = true;
-              animateSendItem(e.objId, e.pg, state.registry, () => {
+              animateSendToPrimary(e.objId, e.pg, state.registry, () => {
                 animateSendStatus(
                   e.objId,
                   e.pg,

@@ -39,7 +39,9 @@ export class PrimaryRegistry {
       throw Error(`${pgId} has already been registered as a primary`);
     }
     this.registry.set(pg.id, pg);
-    pg.connectToBucket();
+    if (pg.pathToBucket === null) {
+      pg.connectToBucket();
+    }
   }
 
   remove(pgId) {
@@ -47,7 +49,7 @@ export class PrimaryRegistry {
     if (primary === undefined) {
       return;
     }
-    primary.removeConnectors();
+    primary.removeCurrentMapConnectors();
     this.registry.delete(pgId);
   }
 }
@@ -136,7 +138,6 @@ export class OSD {
    *
    * @param {OSD} other
    * @param {number} pgId
-   * @param {OSD[]} lastColOSD
    */
   connect(other, pgId) {
     let myPG = this.pgs.get(pgId);
@@ -148,7 +149,7 @@ export class OSD {
       throw Error(`connect error: ${other.name} doesn't have PG ${pgId}`);
     }
     this.primaryRegistry.add(myPG);
-    myPG.connectReplica(otherPG);
+    myPG.connectReplica(otherPG, false);
   }
 
   /**
@@ -186,13 +187,12 @@ export class OSD {
       this.bucketPgConnAlloc,
       this.interPgConnAlloc,
     );
-
-    this.pgs.set(id, this.lastPG);
-    this.redraw(this.drawnObj.top);
-
     if (isPrimary) {
       this.primaryRegistry.add(this.lastPG);
     }
+
+    this.pgs.set(id, this.lastPG);
+    this.redraw(this.drawnObj.top);
   }
 
   /**
@@ -454,6 +454,54 @@ export class ConnectorAllocator {
   }
 }
 
+class RCPath {
+  /**
+   * @param {string} name
+   * @param {Line[]} path
+   * @param {Canvas} canvas
+   * @param {function():Line[]} redraw
+   * @param {function():null} destructor
+   */
+  constructor(name, path, canvas, redraw, destructor) {
+    path.forEach((l) => {
+      canvas.add(l);
+    });
+    this.name = name;
+    this.path = path;
+    this.canvas = canvas;
+    this.count = 1;
+    this.redraw = redraw;
+    this.destructor = destructor;
+  }
+
+  redraw() {
+    if (this.count == 0) {
+      throw Error(`tried to redraw dealocated path "${this.paht}"`);
+    }
+    this.path.forEach((l) => this.canvas.remove(l));
+    this.path = this.redraw();
+    this.path.forEach((l) => this.canvas.add(l));
+  }
+
+  up() {
+    if (this.count == 0) {
+      throw Error(
+        `tried to up reference count on dealocated path "${this.paht}"`,
+      );
+    }
+    ++this.count;
+  }
+
+  down() {
+    --this.count;
+    if (this.count == 0) {
+      this.path.forEach((l) => this.canvas.remove(l));
+      this.path = null;
+      this.destructor();
+    }
+  }
+}
+
 class PG {
   /**
    * @param {number} id
@@ -478,15 +526,17 @@ class PG {
   ) {
     this.id = id;
     this.osd = osd;
+    this.name = `${this.osd.name}.${this.id}`;
     this.col = col;
     this.canvas = canvas;
     this.lastColOSD = lastColOSD;
     this.interPgConnAlloc = interPgConnAlloc;
     this.bucketPgConnAlloc = bucketPgConnAlloc;
     /**
-     * @type {Line[] | null}
+     * @type {RCPath | null}
      */
     this.pathToBucket = null;
+    this.pathToBucketRC = 0;
 
     this.bucketConnectorID = null;
     this.bucketConnectorColor = null;
@@ -494,9 +544,9 @@ class PG {
     this.connectorID = null;
     this.connectorColor = null;
     /**
-     * @type {PG[]}
+     * @type {Map<string, PG>}
      */
-    this.replicas = [];
+    this.replicas = new Map();
 
     this.drawnObj = new Rect({
       top: posY,
@@ -504,6 +554,7 @@ class PG {
       width: OSD.width - 2 * PGBoxGap,
       height: PGBoxHeight,
       fill: "#f6f6f6",
+
       lockMovementX: true,
       lockMovementY: true,
       lockRotation: true,
@@ -532,9 +583,9 @@ class PG {
     this.canvas.add(this.drawnText);
 
     /**
-     * @type {Line[][]}
+     * @type {Map<string, RCPath>}
      */
-    this.connectors = [];
+    this.connectors = new Map();
     this.peeringCount = 0;
   }
 
@@ -552,25 +603,12 @@ class PG {
     }
   }
 
-  removeConnectors() {
-    if (this.connectorID !== null) {
-      this.connectors.forEach((path) =>
-        path.forEach((l) => this.canvas.remove(l)),
-      );
-      this.connectors = [];
-      this.interPgConnAlloc.free(this.connectorID);
-      this.connectorID = null;
-      this.connectorColor = null;
-      this.replicas = [];
-    }
-
-    if (this.pathToBucket !== null) {
-      this.pathToBucket.forEach((l) => this.canvas.remove(l));
-      this.pathToBucket = null;
-      this.bucketPgConnAlloc.free(this.bucketConnectorID);
-      this.bucketConnectorID = null;
-      this.bucketConnectorColor = null;
-    }
+  removeCurrentMapConnectors() {
+    this.replicas.forEach((_, name) => {
+      this.connectors.get(name).down();
+    });
+    this.replicas.clear();
+    this.pathToBucket?.down();
   }
 
   redraw(deltaY) {
@@ -585,37 +623,18 @@ class PG {
   }
 
   redrawConnectors() {
-    this.connectors.forEach((path) =>
-      path.forEach((l) => this.canvas.remove(l)),
-    );
-    this.connectors = [];
-
-    let myReplicas = this.replicas;
-    this.replicas = [];
-    myReplicas.forEach((c) => this.connectReplica(c));
-
-    if (this.pathToBucket !== null) {
-      this.pathToBucket.forEach((l) => this.canvas.remove(l));
-      this.pathToBucket = null;
-      this.connectToBucket();
-    }
+    this.connectors.forEach((path) => path.redraw());
+    this.pathToBucket?.redraw();
   }
 
-  connectToBucket() {
-    if (this.pathToBucket !== null) {
-      return;
-    }
-    let bucket = this.osd.bucket;
+  #calculatePathToBucket() {
     if (this.bucketConnectorID == null) {
-      let connOpt = this.bucketPgConnAlloc.alloc();
-      if (connOpt === null) {
-        throw Error(
-          `couldn't allocate connection from ${bucket.name} to ${this.name}`,
-        );
-      }
-      [this.bucketConnectorID, this.bucketConnectorColor] = connOpt;
+      throw Error(
+        `${this.name} tried to calculate path to bucket, but path wasn't allocated`,
+      );
     }
 
+    let bucket = this.osd.bucket;
     const indent = this.bucketPgConnAlloc.getIndent(this.bucketConnectorID);
     const myHeightMidpoint = bucket.drawnObj.top + bucket.drawnObj.height / 2;
     const pgHeightMidpoint = this.drawnObj.top + this.drawnObj.height / 2;
@@ -648,15 +667,56 @@ class PG {
         { stroke: this.bucketConnectorColor },
       ),
     ];
-    this.pathToBucket = path;
-
-    path.forEach((l) => this.canvas.add(l));
+    return path;
   }
 
   /**
-   * @param {PG} replica
+   * is **NOT** an idempotent method!!!
+   * creates a path to parent bucket. This path is **reference counted**
    */
-  connectReplica(replica) {
+  connectToBucket() {
+    if (this.pathToBucket !== null) {
+      this.pathToBucket.up();
+      return;
+    }
+
+    if (this.bucketConnectorID === null) {
+      let connOpt = this.bucketPgConnAlloc.alloc();
+      if (connOpt === null) {
+        throw Error(
+          `couldn't allocate connection from ${this.osd.bucket.name} to ${this.name}`,
+        );
+      }
+      [this.bucketConnectorID, this.bucketConnectorColor] = connOpt;
+    }
+
+    this.pathToBucket = new RCPath(
+      `${this.name}->${this.osd.bucket.name}`,
+      this.#calculatePathToBucket(),
+      this.canvas,
+      () => this.#calculatePathToBucket(),
+      () => {
+        this.pathToBucket = null;
+        this.bucketPgConnAlloc.free(this.bucketConnectorID);
+        this.bucketConnectorID = null;
+        this.bucketConnectorColor = null;
+      },
+    );
+  }
+
+  releaseBucketConnect() {
+    if (this.pathToBucket === null) {
+      throw Error(`${this.name}: no path to bucket exists to release`);
+    }
+    this.pathToBucket.down();
+  }
+
+  /**
+   * Connects primary with its replica. allocates indent if needed.
+   * @param {PG} replica
+   * @returns {Line[]} drawn path to replica
+   */
+  #calculatePathToReplica(replica) {
     if (this.pathToBucket === null) {
       throw Error(
         `I tried to connect to replica, but I'm not primary: ${this.osd.name}, ${this.id} -> ${replica.osd.name}, ${replica.id}`,
@@ -673,12 +733,12 @@ class PG {
     }
 
     let indent = this.interPgConnAlloc.getIndent(this.connectorID);
-    this.replicas.push(replica);
 
+    let path = [];
     if (this.col < replica.col) {
       let lastX = this.drawnObj.left + this.drawnObj.width + PGBoxGap + indent;
       let lastY = this.drawnObj.top + this.drawnObj.height / 2;
-      let path = [
+      path.push(
         new Line(
           [
             this.drawnObj.left + this.drawnObj.width,
@@ -688,7 +748,7 @@ class PG {
           ],
           { stroke: this.connectorColor },
         ),
-      ];
+      );
       let n = replica.col - this.col - 1;
       for (let i = 0; i < n; ++i) {
         let passOSD = this.lastColOSD[this.col + i + 1].drawnObj;
@@ -720,12 +780,10 @@ class PG {
           },
         ),
       );
-      path.forEach((c) => this.canvas.add(c));
-      this.connectors.push(path);
     } else {
       let lastX = this.drawnObj.left + this.drawnObj.width + PGBoxGap + indent;
       let lastY = this.drawnObj.top + this.drawnObj.height / 2;
-      let path = [
+      path.push(
         new Line(
           [
             this.drawnObj.left + this.drawnObj.width,
@@ -735,7 +793,7 @@ class PG {
           ],
           { stroke: this.connectorColor },
         ),
-      ];
+      );
       let n = this.col - replica.col + 1;
       for (let i = 0; i < n - 1; ++i) {
         let passOSD = this.lastColOSD[this.col - i].drawnObj;
@@ -780,9 +838,38 @@ class PG {
           },
         ),
       );
-      path.forEach((c) => this.canvas.add(c));
-      this.connectors.push(path);
     }
+    return path;
+  }
+
+  /**
+   * @param {PG} replica
+   * @param {bool} isTmp
+   */
+  connectReplica(replica, isTmp) {
+    if (!isTmp) {
+      this.replicas.set(replica.name, replica);
+    }
+    let rcPath = this.connectors.get(replica.name);
+    if (rcPath !== undefined) {
+      rcPath.up();
+      return;
+    }
+    rcPath = new RCPath(
+      `${this.name}->${replica.name}`,
+      this.#calculatePathToReplica(replica),
+      this.canvas,
+      () => this.#calculatePathToReplica(replica),
+      () => {
+        this.connectors.delete(replica.name);
+        if (this.connectors.size === 0) {
+          this.interPgConnAlloc.free(this.connectorID);
+          this.connectorID = null;
+          this.connectorColor = null;
+        }
+      },
+    );
+    this.connectors.set(replica.name, rcPath);
   }
 }
 
