@@ -135,7 +135,23 @@ export class OSD {
   }
 
   /**
-   *
+   * @param {OSD} other
+   * @param {number} pgId
+   * @returns {RCPath}
+   */
+  connectTmp(other, pgId) {
+    let myPG = this.pgs.get(pgId);
+    if (myPG === undefined) {
+      throw Error(`connect error: ${this.name} doesn't have PG ${pgId}`);
+    }
+    let otherPG = other.pgs.get(pgId);
+    if (myPG === undefined) {
+      throw Error(`connect error: ${other.name} doesn't have PG ${pgId}`);
+    }
+    return myPG.connectReplicaTmp(otherPG);
+  }
+
+  /**
    * @param {OSD} other
    * @param {number} pgId
    */
@@ -149,7 +165,7 @@ export class OSD {
       throw Error(`connect error: ${other.name} doesn't have PG ${pgId}`);
     }
     this.primaryRegistry.add(myPG);
-    myPG.connectReplica(otherPG, false);
+    myPG.connectReplica(otherPG);
   }
 
   /**
@@ -380,9 +396,25 @@ export class Bucket {
 
 const SPACE_BETWEEN_OSD_COLS = 60;
 const STEP_Y_BETWEEN = 40;
-export const PGCout = 8;
+export const PGCount = 30;
 const PGBoxHeight = 20;
 const PGBoxGap = 3;
+
+function gcd(a, b) {
+  a = Math.abs(a);
+  b = Math.abs(b);
+  if (b > a) {
+    var temp = a;
+    a = b;
+    b = temp;
+  }
+  while (true) {
+    if (b == 0) return a;
+    a %= b;
+    if (a == 0) return b;
+    b %= a;
+  }
+}
 
 export class ConnectorAllocator {
   static MIN_INDENT = 5;
@@ -391,7 +423,14 @@ export class ConnectorAllocator {
    */
   constructor(max, normal = true) {
     this.limit = max;
-    this.is_allocated = [];
+    this.isAllocated = [];
+    this.step = 7;
+    if (gcd(max, this.step) != 1) {
+      throw Error(
+        "assertion error: allocator step and alloc size must be co-prime",
+      );
+    }
+
     if (normal) {
       this.colors = [
         "#d53e4f",
@@ -415,8 +454,8 @@ export class ConnectorAllocator {
         "#cd7742",
       ];
     }
-    for (let i = 0; i < max; ++i) {
-      this.is_allocated.push(false);
+    for (let i = 0; i < max; i++) {
+      this.isAllocated.push(false);
     }
   }
 
@@ -433,10 +472,11 @@ export class ConnectorAllocator {
    * @returns {[number, string] | null}
    */
   alloc() {
-    for (let i = 0; i < this.is_allocated.length; ++i) {
-      if (!this.is_allocated[i]) {
-        this.is_allocated[i] = true;
-        return [i, this.colors[i % this.colors.length]];
+    for (let i = 0; i < this.isAllocated.length; ++i) {
+      let index = (this.step * i) % this.isAllocated.length;
+      if (!this.isAllocated[index]) {
+        this.isAllocated[index] = true;
+        return [index, this.colors[index % this.colors.length]];
       }
     }
     return null;
@@ -446,15 +486,15 @@ export class ConnectorAllocator {
    * @param {number} i
    */
   free(i) {
-    if (!this.is_allocated[i]) {
+    if (!this.isAllocated[i]) {
       throw Error(`double free: ${i}`);
     }
 
-    this.is_allocated[i] = false;
+    this.isAllocated[i] = false;
   }
 }
 
-class RCPath {
+export class RCPath {
   /**
    * @param {string} name
    * @param {Line[]} path
@@ -844,16 +884,13 @@ class PG {
 
   /**
    * @param {PG} replica
-   * @param {bool} isTmp
+   * @returns {RCPath} tmp path
    */
-  connectReplica(replica, isTmp) {
-    if (!isTmp) {
-      this.replicas.set(replica.name, replica);
-    }
+  connectReplicaTmp(replica) {
     let rcPath = this.connectors.get(replica.name);
     if (rcPath !== undefined) {
       rcPath.up();
-      return;
+      return rcPath;
     }
     rcPath = new RCPath(
       `${this.name}->${replica.name}`,
@@ -870,6 +907,36 @@ class PG {
       },
     );
     this.connectors.set(replica.name, rcPath);
+    return rcPath;
+  }
+
+  /**
+   * @param {PG} replica
+   * @returns {null}
+   */
+  connectReplica(replica) {
+    this.replicas.set(replica.name, replica);
+    let rcPath = this.connectors.get(replica.name);
+    if (rcPath !== undefined) {
+      rcPath.up();
+      return null;
+    }
+    rcPath = new RCPath(
+      `${this.name}->${replica.name}`,
+      this.#calculatePathToReplica(replica),
+      this.canvas,
+      () => this.#calculatePathToReplica(replica),
+      () => {
+        this.connectors.delete(replica.name);
+        if (this.connectors.size === 0) {
+          this.interPgConnAlloc.free(this.connectorID);
+          this.connectorID = null;
+          this.connectorColor = null;
+        }
+      },
+    );
+    this.connectors.set(replica.name, rcPath);
+    return null;
   }
 }
 
@@ -941,7 +1008,7 @@ export function drawHierarchy(
     let prevOSD = null;
 
     let osd = undefined;
-    let bucketPgConnAlloc = new ConnectorAllocator(PGCout, false);
+    let bucketPgConnAlloc = new ConnectorAllocator(PGCount, false);
     for (let child of root.children) {
       osd = new OSD(
         b,

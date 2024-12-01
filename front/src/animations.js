@@ -1,5 +1,5 @@
 import { Circle, Textbox, Group } from "fabric";
-import { OSD, PrimaryRegistry } from "./connection";
+import { OSD, PrimaryRegistry, RCPath } from "./connection";
 
 class Blob {
   static radius = 10;
@@ -98,7 +98,9 @@ function animatePath(objId, path, canvas, callback) {
 }
 
 /**
+ * @param {number} objId
  * @param {Bucket} b
+ * @param {function():null} finalCallback
  */
 function animateBucketPath(objId, b, finalCallback) {
   if (b === null || b.parent === null) {
@@ -139,50 +141,54 @@ export function animateSendFailure(objId, hierarchyRoot, callback) {
  * @param {number} pgId
  * @param {OSD} osd
  */
-export function animateSendToPrimary(objId, pgId, osd, sendToReplicasCallback) {
+export function animateSendToPrimary(objId, pgId, osd, callback) {
+  let mapPrimaryPG = osd.pgs.get(pgId);
+  mapPrimaryPG.connectToBucket();
   animateBucketPath(objId, osd.bucket, () => {
-    let mapPrimaryPG = osd.pgs.get(pgId);
-    mapPrimaryPG.connectToBucket();
-    animatePath(objId, mapPrimaryPG.pathToBucket, osd.canvas, () => {
-      sendToReplicasCallback();
+    animatePath(objId, mapPrimaryPG.pathToBucket.path, osd.canvas, () => {
+      callback();
       mapPrimaryPG.releaseBucketConnect();
     });
   });
 }
 
 /**
- * 
- * @param {number} objId 
- * @param {number} pgId 
- * @param {string[]} newMap 
+ * @param {number} objId
+ * @param {number} pgId
+ * @param {string[]} newMap
  * @param {Map<string, OSD>} name2osd
- * @param {function} callback 
+ * @param {function} callback
  */
 export function animateSendToReplicas(objId, pgId, newMap, name2osd, callback) {
-  let primaryOSD = name2osd.get(newMap[0])
-  primaryOSD.connect
-  
-  
-  
-  
-  let primary = registry.get(pgId);
-  primary.connectors.forEach((path) =>
-    animatePath(objId, path, primary.canvas, callback),
+  if (newMap.length === 1) {
+    return;
+  }
+  let primaryOSD = name2osd.get(newMap[0]);
+  /**
+   * @type {RCPath[]}
+   */
+  let paths = [];
+  for (let i = 1; i < newMap.length; ++i) {
+    let secondaryOSD = name2osd.get(newMap[i]);
+    paths.push(primaryOSD.connectTmp(secondaryOSD, pgId));
+  }
+
+  paths.forEach((path) =>
+    animatePath(objId, path.path, primaryOSD.canvas, () => {
+      callback();
+      path.down();
+    }),
   );
 }
 
 /**
- *
  * @param {number} objId
  * @param {number} pgId
- * @param {string} osd
- * @param {Map<string, OSD>} name2osd
+ * @param {OSD} osd
  * @param {"successRecv" | "failRecv"} status
  */
-export function animateSendStatus(objId, pgId, osdName, name2osd, status) {
-  let osd = name2osd.get(osdName);
+export function animateSendStatus(objId, pgId, osd, status) {
   let target = osd.pgs.get(pgId);
-
   animateBlobFading(objId, target, status, () => {});
 }
 

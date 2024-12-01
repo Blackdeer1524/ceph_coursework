@@ -36,14 +36,14 @@ PlacementGroupID_T = NewType("PlacementGroupID_T", int)
 class EPrimaryRecvSuccess:
     obj: ObjectID_T
     pg: PlacementGroupID_T
-    osd: DeviceID_T
+    cur_map: list[DeviceID_T]
 
     def to_json(self):
         return {
             "type": "primary_recv_success",
             "pg": self.pg,
             "objId": self.obj,
-            "osd": f"osd.{self.osd}",
+            "map": [f"osd.{i}" for i in self.cur_map],
         }
 
 
@@ -346,7 +346,7 @@ class PlacementGroup:
         print(f"osd.{primary.info.id} is alive at {primary_write_time}")
         res: list[Event] = [
             Event(
-                EPrimaryRecvSuccess(obj_id, self.id, primary.info.id),
+                EPrimaryRecvSuccess(obj_id, self.id, [d.info.id for d in cur_map]),
                 primary_write_time,
                 lambda: self.logs[primary.info.id].ops.append(
                     Operation(obj_id, op_type)

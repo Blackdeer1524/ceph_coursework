@@ -4,7 +4,7 @@ import {
   drawHierarchy,
   ConnectorAllocator,
   PrimaryRegistry,
-  PGCout,
+  PGCount,
   setupMapping,
   OSD,
 } from "./connection";
@@ -178,7 +178,7 @@ function main() {
         state = {
           start: new Bucket("User", INIT_GAP, 30, null, mapCanvas),
           registry: new PrimaryRegistry(),
-          interPgConnAlloc: new ConnectorAllocator(PGCout, true, true),
+          interPgConnAlloc: new ConnectorAllocator(PGCount, true, true),
           peeringInfo: new Map(),
         };
         state.name2osd = drawHierarchy(
@@ -211,33 +211,36 @@ function main() {
               break;
             }
             case "primary_recv_success": {
-              let primary = state.registry.get(e.pg);
               simStart.disabled = true;
-              animateSendToPrimary(e.objId, e.pg, state.registry, () => {
-                animateSendStatus(
-                  e.objId,
-                  e.pg,
-                  primary.osd.name,
-                  state.name2osd,
-                  "successRecv",
-                );
-                animateSendToReplicas(e.objId, e.pg, state.registry, () => {
-                  simStart.disabled = false;
-                });
-              });
+              animateSendToPrimary(
+                e.objId,
+                e.pg,
+                state.name2osd.get(e.map[0]),
+                () => {
+                  animateSendStatus(
+                    e.objId,
+                    e.pg,
+                    state.name2osd.get(e.map[0]),
+                    "successRecv",
+                  );
+                  animateSendToReplicas(
+                    e.objId,
+                    e.pg,
+                    e.map,
+                    state.name2osd,
+                    () => {
+                      simStart.disabled = false;
+                    },
+                  );
+                },
+              );
               break;
             }
             case "primary_recv_fail": {
-              let primary = state.registry.get(e.pg);
+              let primaryOSD = state.name2osd.get(e.osd);
               simStart.disabled = true;
-              animateSendToPrimary(e.objId, e.pg, state.registry, () => {
-                animateSendStatus(
-                  e.objId,
-                  e.pg,
-                  primary.osd.name,
-                  state.name2osd,
-                  "failRecv",
-                );
+              animateSendToPrimary(e.objId, e.pg, primaryOSD, () => {
+                animateSendStatus(e.objId, e.pg, primaryOSD, "failRecv");
                 simStart.disabled = false;
               });
               break;
@@ -247,8 +250,7 @@ function main() {
               animateSendStatus(
                 e.objId,
                 e.pg,
-                primary.osd.name,
-                state.name2osd,
+                state.name2osd.get(e.osd),
                 "successRecv",
               );
               break;
@@ -258,27 +260,16 @@ function main() {
               animateSendStatus(
                 e.objId,
                 e.pg,
-                primary.osd.name,
-                state.name2osd,
+                state.name2osd.get(e.osd),
                 "failRecv",
               );
-              for (let replica of primary.replicas) {
-                animateSendStatus(
-                  e.objId,
-                  e.pg,
-                  replica.osd.name,
-                  state.name2osd,
-                  "failRecv",
-                );
-              }
               break;
             }
             case "replica_recv_ack": {
               animateSendStatus(
                 e.objId,
                 e.pg,
-                e.osd,
-                state.name2osd,
+                state.name2osd.get(e.osd),
                 "successRecv",
               );
               break;
@@ -287,8 +278,7 @@ function main() {
               animateSendStatus(
                 e.objId,
                 e.pg,
-                e.osd,
-                state.name2osd,
+                state.name2osd.get(e.osd),
                 "successRecv",
               );
               break;
@@ -297,8 +287,7 @@ function main() {
               animateSendStatus(
                 e.objId,
                 e.pg,
-                e.osd,
-                state.name2osd,
+                state.name2osd.get(e.osd),
                 "failRecv",
               );
               break;
