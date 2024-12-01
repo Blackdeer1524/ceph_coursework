@@ -33,22 +33,22 @@ host ceph-osd-server-1 {
     id -1
     alg uniform
     item osd.0 weight 1.00
+    item osd.1 weight 1.00
 }
 
 host ceph-osd-server-2 {
     id -2
     hash 0
     alg uniform
-    item osd.1 weight 1.00
     item osd.2 weight 1.00
     item osd.3 weight 1.00
+    item osd.4 weight 1.00
 }
 
 host ceph-osd-server-3 {
     id -3
     hash 0
     alg uniform
-    item osd.4 weight 1.00
     item osd.5 weight 1.00
     item osd.6 weight 1.00
     item osd.7 weight 1.00
