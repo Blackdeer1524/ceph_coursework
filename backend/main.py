@@ -3,10 +3,11 @@ from dataclasses import dataclass
 import json
 import sys
 from typing import Any, Generator
+from parser import OutOfClusterWeight
 import heapq
 
 
-from parser import ParserResult, ParsingError
+from parser import Device, ParserResult, ParsingError
 from crush import Tunables
 from mapping import (
     EOSDFailed,
@@ -86,11 +87,12 @@ import asyncio
 from websockets.asyncio.server import serve
 
 
-@dataclass(frozen=True)
+@dataclass
 class SetupResult:
     queue: list[Event]
     pgs: PGList
     context: Context
+    devices: dict[DeviceID_T, Device]
 
 
 # info: a lot of params can be made params to this function
@@ -123,7 +125,56 @@ def setup_event_queue(r: ParserResult) -> SetupResult:
     loop: Event = get_iteration_event(
         r.root, r.devices, init_weights, r.rules[0], tunables, cfg, context
     )
-    return SetupResult([loop], pgs, context)
+    return SetupResult([loop], pgs, context, r.devices)
+
+
+def adjustMapping(r: ParserResult, setup: SetupResult):
+    DEATH_PROBA = 0.25
+
+    context = Context(
+        current_time=setup.context.current_time,
+        timestep=20,
+        timesteps_to_peer=2,
+        timeout=70,
+        user_conn_speed=defaultdict(lambda: 20),
+        conn_speed=defaultdict(lambda: 20),
+        failure_proba=defaultdict(lambda: 0.05),
+        alive_intervals_per_device={},
+    )
+    init_weights: dict[DeviceID_T, WeightT] = {}
+    for d in r.devices.values():
+        init_weights[d.info.id] = d.weight
+        context.alive_intervals_per_device[d.info.id] = AliveIntervals(
+            d.info.id, DEATH_PROBA
+        )
+
+        oldDevice = setup.devices.get(d.info.id)
+        if oldDevice is not None and oldDevice.weight == OutOfClusterWeight:
+            d.update_weight(oldDevice.weight)
+
+    tunables = Tunables(5)
+    cfg = PoolParams(size=3, min_size=2, pgs=setup.pgs)
+    new_loop: list[Event] = []
+    for e in setup.queue:
+        match e.tag:
+            case EMainloopInteration():
+                heapq.heappush(
+                    new_loop,
+                    get_iteration_event(
+                        r.root,
+                        r.devices,
+                        init_weights,
+                        r.rules[0],
+                        tunables,
+                        cfg,
+                        context,
+                    ),
+                )
+            case EPeeringSuccess() | EPeeringFailure() | EOSDFailed() | EOSDRecovered():
+                heapq.heappush(new_loop, e)
+            case _:
+                ...
+    setup.queue = new_loop
 
 
 async def handler(websocket):
@@ -131,6 +182,30 @@ async def handler(websocket):
     async for message in websocket:
         m = json.loads(message)
         match m["type"]:
+            case "adjust_rule":
+                assert setup is not None
+                try:
+                    r = Parser(m["message"]).parse()
+                except ParsingError as e:
+                    await websocket.send(
+                        json.dumps(
+                            {
+                                "type": "hierarchy_fail",
+                                "data": str(e),
+                            }
+                        )
+                    )
+                else:
+                    hierarchy = r.root.to_json()
+                    adjustMapping(r, setup)
+                    await websocket.send(
+                        json.dumps(
+                            {
+                                "type": "adjust_hierarchy_success",
+                                "data": hierarchy,
+                            }
+                        )
+                    )
             case "rule":
                 try:
                     r = Parser(m["message"]).parse()

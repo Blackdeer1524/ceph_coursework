@@ -7,6 +7,7 @@ import {
   PGCount,
   setupMapping,
   OSD,
+  adjustHierarchy,
 } from "./connection";
 
 import {
@@ -100,14 +101,25 @@ function main() {
   document.getElementById("editor").value = DEFAULT_CONFIG;
   socket.addEventListener("open", (event) => {
     let objId = 0;
-    let submitButton = document.getElementById("config-submit");
+
     let editor = document.getElementById("editor");
+    let submitButton = document.getElementById("config-submit");
     submitButton.onclick = (e) => {
       objId = 0;
       timestampLabel.innerHTML = 0;
       socket.send(
         JSON.stringify({
           type: "rule",
+          message: editor.value,
+        }),
+      );
+    };
+
+    let adjustButton = document.getElementById("config-adjust");
+    adjustButton.onclick = (e) => {
+      socket.send(
+        JSON.stringify({
+          type: "adjust_rule",
           message: editor.value,
         }),
       );
@@ -191,6 +203,30 @@ function main() {
           state.interPgConnAlloc,
         );
         break;
+      case "adjust_hierarchy_success": {
+        const INIT_GAP = (mapCanvas.getWidth() - Bucket.width) / 2;
+        mapCanvas.forEachObject((o) => {
+          mapCanvas.remove(o);
+        });
+        let oldState = state;
+        state = {
+          start: new Bucket("User", INIT_GAP, 30, null, mapCanvas),
+          registry: new PrimaryRegistry(),
+          interPgConnAlloc: new ConnectorAllocator(PGCount, true, true),
+          peeringInfo: state.peeringInfo,
+        };
+        state.name2osd = drawHierarchy(
+          state.start,
+          res.data,
+          [INIT_GAP, 130],
+          mapCanvas,
+          [],
+          state.registry,
+          state.interPgConnAlloc,
+        );
+        adjustHierarchy(oldState.name2osd, oldState.registry, state.name2osd);
+        break;
+      }
       case "events":
         if (state === null) {
           console.log("can't process events when state is null");

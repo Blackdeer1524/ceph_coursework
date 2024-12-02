@@ -9,7 +9,14 @@ from typing import (
     NewType,
 )
 from crush import Tunables, apply
-from parser import Bucket, OutOfClusterWeight, Device, DeviceID_T, Rule, WeightT
+from parser import (
+    Bucket,
+    OutOfClusterWeight,
+    Device,
+    DeviceID_T,
+    Rule,
+    WeightT,
+)
 
 
 @dataclass
@@ -287,28 +294,28 @@ class PlacementGroup:
         init=False, default_factory=lambda: defaultdict(LogData)
     )
     last_sync: int = field(init=False, default=-1)
-    _maps: list[list[Device]] = field(init=False, default_factory=list)
+    _maps: list[list[DeviceID_T]] = field(init=False, default_factory=list)
     is_peering: bool = field(init=False, default=False)
 
     @property
-    def maps(self) -> list[list[Device]]:
+    def maps(self) -> list[list[DeviceID_T]]:
         return self._maps
 
-    def record_mapping(self, m: list[Device]) -> bool:
+    def record_mapping(self, m: list[DeviceID_T]) -> bool:
         if len(self._maps) == 0 or m != self._maps[-1]:
             self._maps.append(m)
             return True
         return False
 
-    def peer(self, context: Context) -> tuple[list[list[Device]], bool]:
+    def peer(self, context: Context) -> tuple[list[list[DeviceID_T]], bool]:
         syncing_maps = self._maps[self.last_sync :]
         return syncing_maps, all(
             all(
                 any(
-                    context.alive_intervals_per_device[d.info.id].check_at_time(
+                    context.alive_intervals_per_device[id].check_at_time(
                         context.current_time + j * context.timestep
                     )
-                    for d in map
+                    for id in map
                 )
                 for j in range(context.timesteps_to_peer)
             )
@@ -323,104 +330,93 @@ class PlacementGroup:
             return [Event(ESendFailure(obj_id, "bad map"), context.current_time)]
         cur_map = self.maps[-1]
 
-        primary = cur_map[0]
+        primary_id = cur_map[0]
         max_time = primary_write_time = (
-            context.current_time + context.user_conn_speed[primary.info.id]
+            context.current_time + context.user_conn_speed[primary_id]
         )
 
-        if not context.alive_intervals_per_device[primary.info.id].check_at_time(
+        if not context.alive_intervals_per_device[primary_id].check_at_time(
             primary_write_time
         ) or not test_proba(
-            context.failure_proba[primary.info.id],
+            context.failure_proba[primary_id],
             context.current_time,
             obj_id,
-            primary.info.id,
+            primary_id,
         ):
             return [
                 Event(
-                    EPrimaryRecvFailure(obj_id, self.id, primary.info.id),
+                    EPrimaryRecvFailure(obj_id, self.id, primary_id),
                     primary_write_time,
                 )
             ]
 
-        print(f"osd.{primary.info.id} is alive at {primary_write_time}")
+        print(f"osd.{primary_id} is alive at {primary_write_time}")
         res: list[Event] = [
             Event(
-                EPrimaryRecvSuccess(obj_id, self.id, [d.info.id for d in cur_map]),
+                EPrimaryRecvSuccess(obj_id, self.id, [d_id for d_id in cur_map]),
                 primary_write_time,
-                lambda: self.logs[primary.info.id].ops.append(
-                    Operation(obj_id, op_type)
-                ),
+                lambda: self.logs[primary_id].ops.append(Operation(obj_id, op_type)),
             )
         ]
 
         secondary = cur_map[1:]
         failed = False
-        for d in secondary:
-            if context.alive_intervals_per_device[d.info.id].check_at_time(
-                primary_write_time + context.conn_speed[primary.info.id, d.info.id]
+        for d_id in secondary:
+            if context.alive_intervals_per_device[d_id].check_at_time(
+                primary_write_time + context.conn_speed[primary_id, d_id]
             ) and test_proba(
-                context.failure_proba[d.info.id],
+                context.failure_proba[d_id],
                 context.current_time,
                 obj_id,
-                d.info.id,
+                d_id,
             ):
-                print(
-                    f"osd.{d.info.id} is alive at {primary_write_time + context.conn_speed[primary.info.id, d.info.id]}"
-                )
                 res.append(
                     Event(
-                        EReplicaRecvSuccess(obj_id, self.id, d.info.id),
-                        primary_write_time
-                        + context.conn_speed[primary.info.id, d.info.id],
+                        EReplicaRecvSuccess(obj_id, self.id, d_id),
+                        primary_write_time + context.conn_speed[primary_id, d_id],
                         (
                             lambda x: (
-                                lambda: self.logs[x.info.id].ops.append(
+                                lambda: self.logs[x].ops.append(
                                     Operation(obj_id, op_type)
                                 )
                             )
-                        )(d),
+                        )(d_id),
                     ),
                 )
                 res.append(
                     Event(
-                        EReplicaRecvAcknowledged(obj_id, self.id, d.info.id),
-                        primary_write_time
-                        + context.conn_speed[primary.info.id, d.info.id]
-                        + 1,
+                        EReplicaRecvAcknowledged(obj_id, self.id, d_id),
+                        primary_write_time + context.conn_speed[primary_id, d_id] + 1,
                     )
                 )
                 max_time = max(
                     max_time,
-                    primary_write_time
-                    + context.conn_speed[primary.info.id, d.info.id]
-                    + 1,
+                    primary_write_time + context.conn_speed[primary_id, d_id] + 1,
                 )
             else:
                 failed = True
                 res.append(
                     Event(
-                        EReplicaRecvFailure(obj_id, self.id, d.info.id),
-                        primary_write_time
-                        + context.conn_speed[primary.info.id, d.info.id],
+                        EReplicaRecvFailure(obj_id, self.id, d_id),
+                        primary_write_time + context.conn_speed[primary_id, d_id],
                     )
                 )
                 max_time = max(
                     max_time,
-                    primary_write_time + context.conn_speed[primary.info.id, d.info.id],
+                    primary_write_time + context.conn_speed[primary_id, d_id],
                 )
 
         if failed:
             res.append(
                 Event(
-                    EPrimaryReplicationFail(obj_id, self.id, primary.info.id),
+                    EPrimaryReplicationFail(obj_id, self.id, primary_id),
                     max_time + 1,
                 )
             )
         else:
             res.append(
                 Event(
-                    EPrimaryRecvAcknowledged(obj_id, self.id, primary.info.id),
+                    EPrimaryRecvAcknowledged(obj_id, self.id, primary_id),
                     max_time + 1,
                 )
             )
@@ -479,7 +475,7 @@ def map_pg(
         prev_maps, success = pg.peer(context)
         devices_used_in_peering: set[DeviceID_T] = set()
         for m in prev_maps:
-            devices_used_in_peering.update((d.info.id for d in m))
+            devices_used_in_peering.update((d_id for d_id in m))
 
         peering_id = hash((pg.id, context.current_time))
         events.append(
@@ -500,7 +496,7 @@ def map_pg(
             def inner():
                 inner_pg.is_peering = False
                 inner_pg.last_sync = len(inner_pg.maps)
-                inner_pg.maps.append(ds)
+                inner_pg.maps.append([d.info.id for d in ds])
 
             return inner
 

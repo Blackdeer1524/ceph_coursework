@@ -104,7 +104,7 @@ class JSONOSD(TypedDict):
 class Device:
     info: DeviceInfo
     _weight: WeightT
-    _parent: "Bucket" = field(repr=False)
+    _parent: "Bucket" = field(repr=False, compare=False)
 
     def to_json(self) -> JSONOSD:
         return {"name": f"osd.{self.info.id}", "type": "osd"}

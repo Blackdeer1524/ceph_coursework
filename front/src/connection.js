@@ -105,6 +105,7 @@ export class OSD {
       fill: "#e1e1e1",
       rx: 5,
       ry: 5,
+
       lockMovementX: true,
       lockMovementY: true,
       lockRotation: true,
@@ -132,6 +133,7 @@ export class OSD {
     });
     this.canvas.add(this.drawnObj);
     this.canvas.add(this.drawnText);
+    this.failed = false;
   }
 
   /**
@@ -176,6 +178,8 @@ export class OSD {
   }
 
   /**
+   * idempotent method. If `addPG(ID, false)` is invoked after `addPG(ID, true)`, then nothing changes.
+   * If `addPG(ID, true)` is invoked after `addPG(ID, false)`, then only PG's status is changed on being primary.
    * @param {number} id
    * @param {bool} isPrimary
    */
@@ -237,42 +241,21 @@ export class OSD {
 
     if (this.nextOSD === null) {
       this.primaryRegistry.registry.forEach((primary) => {
+        // todo: figure out how to redraw all PGs
         primary.redrawConnectors();
       });
-
-      // this.primaryRegistry.registry.forEach((primary) => {
-      //   primary.redrawConnectors();
-      //   // if (primary.col >= this.col) {
-      //   //   for (let replica of primary.replicas) {
-      //   //     if (replica.col <= this.col) {
-      //   //       primary.redrawConnectors();
-      //   //       break;
-      //   //     }
-      //   //   }
-      //   // } else {
-      //   //   for (let replica of primary.replicas) {
-      //   //     if (replica.col >= this.col) {
-      //   //       primary.redrawConnectors();
-      //   //       break;
-      //   //     }
-      //   //   }
-      //   // }
-      // });
     } else {
       this.nextOSD.redraw(newY + newHeight + STEP_Y_BETWEEN);
     }
   }
 
   fail() {
+    this.failed = true;
     this.drawnObj.set({ fill: "red" });
-    // this.pgs.forEach(pg => {
-    //   if (pg.replicas.length > 0) {
-    //     this.primaryRegistry.remove(pg.id)
-    //   }
-    // })
   }
 
   recover() {
+    this.failed = false;
     this.drawnObj.set({ fill: "#e1e1e1" });
   }
 }
@@ -1078,4 +1061,43 @@ export function setupMapping(pgId, registry, map, name2osd) {
     secondaryOSD.addPG(pgId, false);
     primaryOSD.connect(secondaryOSD, pgId);
   }
+}
+
+/**
+ * @param {Map<string, OSD>} oldName2osd
+ * @param {Map<number, PG>} oldRegistry
+ * @param {Map<string, OSD>} newName2osd
+ */
+export function adjustHierarchy(oldName2osd, oldRegistry, newName2osd) {
+  oldName2osd.forEach((oldOSD, osdName) => {
+    let newOSD = newName2osd.get(osdName);
+    if (newOSD === undefined) {
+      return;
+    }
+    if (oldOSD.failed) {
+      newOSD.fail();
+    }
+    oldOSD.pgs.forEach((pg) => {
+      newOSD.addPG(pg.id, false);
+      let newPG = newOSD.pgs.get(pg.id);
+      for (let i = 0; i < pg.peeringCount; ++i) {
+        newPG.startPeering();
+      }
+    });
+  });
+
+  oldRegistry.registry.forEach((oldPrimary, pgId) => {
+    let primaryOSD = newName2osd.get(oldPrimary.osd.name);
+    if (primaryOSD === undefined) {
+      return;
+    }
+    primaryOSD.addPG(pgId, true);
+    oldPrimary.replicas.forEach((oldReplica) => {
+      let childOSD = newName2osd.get(oldReplica.osd.name);
+      if (childOSD === undefined) {
+        return;
+      }
+      primaryOSD.connect(childOSD, pgId);
+    });
+  });
 }
