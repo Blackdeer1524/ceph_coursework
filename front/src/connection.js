@@ -238,22 +238,26 @@ export class OSD {
     if (this.nextOSD === null) {
       this.primaryRegistry.registry.forEach((primary) => {
         primary.redrawConnectors();
-        // if (primary.col >= this.col) {
-        //   for (let replica of primary.replicas) {
-        //     if (replica.col <= this.col) {
-        //       primary.redrawConnectors();
-        //       break;
-        //     }
-        //   }
-        // } else {
-        //   for (let replica of primary.replicas) {
-        //     if (replica.col >= this.col) {
-        //       primary.redrawConnectors();
-        //       break;
-        //     }
-        //   }
-        // }
       });
+
+      // this.primaryRegistry.registry.forEach((primary) => {
+      //   primary.redrawConnectors();
+      //   // if (primary.col >= this.col) {
+      //   //   for (let replica of primary.replicas) {
+      //   //     if (replica.col <= this.col) {
+      //   //       primary.redrawConnectors();
+      //   //       break;
+      //   //     }
+      //   //   }
+      //   // } else {
+      //   //   for (let replica of primary.replicas) {
+      //   //     if (replica.col >= this.col) {
+      //   //       primary.redrawConnectors();
+      //   //       break;
+      //   //     }
+      //   //   }
+      //   // }
+      // });
     } else {
       this.nextOSD.redraw(newY + newHeight + STEP_Y_BETWEEN);
     }
@@ -510,7 +514,7 @@ export class RCPath {
     this.path = path;
     this.canvas = canvas;
     this.count = 1;
-    this.redraw = redraw;
+    this.redraw_func = redraw;
     this.destructor = destructor;
   }
 
@@ -518,8 +522,9 @@ export class RCPath {
     if (this.count == 0) {
       throw Error(`tried to redraw dealocated path "${this.paht}"`);
     }
+    console.log(`${this.name} is redrawing`);
     this.path.forEach((l) => this.canvas.remove(l));
-    this.path = this.redraw();
+    this.path = this.redraw_func();
     this.path.forEach((l) => this.canvas.add(l));
   }
 
