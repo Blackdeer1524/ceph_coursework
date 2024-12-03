@@ -309,11 +309,9 @@ class PlacementGroup:
     is_peering: bool = field(init=False, default=False)
 
     def start_peering(self):
-        print(f"{self.id} started peering")
         self.is_peering = True
 
     def stop_peering(self):
-        print(f"{self.id} ended peering")
         self.is_peering = False
 
     @property
@@ -375,7 +373,6 @@ class PlacementGroup:
                 )
             ]
 
-        print(f"osd.{primary_id} is alive at {primary_write_time}")
         res: list[Event] = [
             Event(
                 EPrimaryRecvSuccess(
