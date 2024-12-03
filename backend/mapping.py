@@ -1,6 +1,7 @@
 from collections import defaultdict
 from dataclasses import dataclass, field
 from enum import Enum, auto
+from hashlib import sha256
 from time import time
 from typing import (
     Callable,
@@ -263,7 +264,8 @@ class Event:
 
 
 def test_proba(p: float, *args: Hashable) -> bool:
-    h = hash(args) & 0xFFFF
+    h = sha256(str(args).encode())
+    h = int(h.hexdigest(), 16) & 0xFFFF
     cutoff = int(p * 0xFFFF)
     return h >= cutoff
 
@@ -470,15 +472,15 @@ class PGList:
         return self._col[id]
 
     def object_insert(self, context: Context, obj_id: ObjectID_T):
-        h = hash(str(obj_id)) % len(self._col)
+        h = int(sha256(str(obj_id).encode()).hexdigest(), 16) % len(self._col)
         return self._col[h].updelsert(context, obj_id, Operation.OpType.INSERT)
 
     def object_update(self, context: Context, obj_id: ObjectID_T):
-        h = hash(str(obj_id)) % len(self._col)
+        h = int(sha256(str(obj_id).encode()).hexdigest(), 16) % len(self._col)
         return self._col[h].updelsert(context, obj_id, Operation.OpType.UPDATE)
 
     def object_delete(self, context: Context, obj_id: ObjectID_T):
-        h = hash(str(obj_id)) % len(self._col)
+        h = int(sha256(str(obj_id).encode()).hexdigest(), 16) % len(self._col)
         return self._col[h].updelsert(context, obj_id, Operation.OpType.DELETE)
 
 

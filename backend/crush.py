@@ -44,7 +44,7 @@ def is_out(weight: WeightT, item: int, x: int) -> bool:
         return False
     if weight == OutOfClusterWeight:
         return True
-    if crush_hash_2(x, item):
+    if (crush_hash_2(x, item) & 0xFFFF) < weight * 0xFFFF:
         return False
     return True
 

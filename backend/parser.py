@@ -20,6 +20,7 @@ rule: "rule" <rulename> {
 }
 """
 
+from hashlib import sha256
 import random
 import sys
 from dataclasses import dataclass, field
@@ -172,9 +173,7 @@ class Bucket:
                 raise NotImplementedError()
 
     def _choose_uniform(self, x: int, r: int) -> Self | Device:
-        # hash(*, -1, *) == hash(*, -2, *)
-        # https://stackoverflow.com/questions/10130454/why-do-1-and-2-both-hash-to-2-in-cpython
-        s = hash((x, abs(self.id), r))
+        s = int(sha256(str((x, abs(self.id), r)).encode()).hexdigest(), 16)
         return self.children[s % len(self.children)]
 
     def _choose_straw2(self, x: int, r: int) -> Self | Device:
@@ -182,7 +181,8 @@ class Bucket:
         if sum(ws) == 0:
             ws[0] = UnitWeight
 
-        random.seed(hash((x, abs(self.id), r)))
+        h = int(sha256(str((x, abs(self.id), r)).encode()).hexdigest(), 16)
+        random.seed(h)
         res = random.choices(self.children, ws)
         return res[0]
 
