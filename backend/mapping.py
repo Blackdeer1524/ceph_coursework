@@ -1,6 +1,7 @@
 from collections import defaultdict
 from dataclasses import dataclass, field
 from enum import Enum, auto
+from time import time
 from typing import (
     Callable,
     Hashable,
@@ -39,8 +40,23 @@ ObjectID_T = NewType("ObjectID_T", int)
 PlacementGroupID_T = NewType("PlacementGroupID_T", int)
 
 
+@dataclass()
+class EMainloopInteration:
+    callback_results: list["Event"]
+
+
+@dataclass(frozen=True)
+class ESendFailure:
+    obj: ObjectID_T
+    reason: str
+
+    def to_json(self):
+        return {"type": "send_fail", "objId": self.obj, "reason": self.reason}
+
+
 @dataclass(frozen=True)
 class EPrimaryRecvSuccess:
+    operation_id: int
     obj: ObjectID_T
     pg: PlacementGroupID_T
     cur_map: list[DeviceID_T]
@@ -56,6 +72,7 @@ class EPrimaryRecvSuccess:
 
 @dataclass(frozen=True)
 class EPrimaryRecvAcknowledged:
+    operation_id: int
     obj: ObjectID_T
     pg: PlacementGroupID_T
     osd: DeviceID_T
@@ -67,15 +84,6 @@ class EPrimaryRecvAcknowledged:
             "objId": self.obj,
             "osd": f"osd.{self.osd}",
         }
-
-
-@dataclass(frozen=True)
-class ESendFailure:
-    obj: ObjectID_T
-    reason: str
-
-    def to_json(self):
-        return {"type": "send_fail", "objId": self.obj, "reason": self.reason}
 
 
 @dataclass(frozen=True)
@@ -95,6 +103,7 @@ class EPrimaryRecvFailure:
 
 @dataclass(frozen=True)
 class EPrimaryReplicationFail:
+    operation_id: int
     obj: ObjectID_T
     pg: PlacementGroupID_T
     osd: DeviceID_T
@@ -110,6 +119,7 @@ class EPrimaryReplicationFail:
 
 @dataclass(frozen=True)
 class EReplicaRecvAcknowledged:
+    operation_id: int
     obj: ObjectID_T
     pg: PlacementGroupID_T
     osd: DeviceID_T
@@ -125,6 +135,7 @@ class EReplicaRecvAcknowledged:
 
 @dataclass(frozen=True)
 class EReplicaRecvSuccess:
+    operation_id: int
     obj: ObjectID_T
     pg: PlacementGroupID_T
     osd: DeviceID_T
@@ -140,6 +151,7 @@ class EReplicaRecvSuccess:
 
 @dataclass(frozen=True)
 class EReplicaRecvFailure:
+    operation_id: int
     obj: ObjectID_T
     pg: PlacementGroupID_T
     osd: DeviceID_T
@@ -155,7 +167,7 @@ class EReplicaRecvFailure:
 
 @dataclass(frozen=True)
 class EPeeringStart:
-    id: int
+    peering_id: int
     pg: PlacementGroupID_T
     device_ids: list[DeviceID_T]
     map_candidate: list[DeviceID_T]
@@ -166,51 +178,48 @@ class EPeeringStart:
             "pg": self.pg,
             "osds": [f"osd.{i}" for i in self.device_ids],
             "new_map_candidate": [f"osd.{i}" for i in self.map_candidate],
-            "peering_id": self.id,
+            "peering_id": self.peering_id,
         }
 
 
 @dataclass(frozen=True)
 class EPeeringSuccess:
-    id: int
+    peering_id: int
+    pg: PlacementGroupID_T
 
     def to_json(self):
         return {
             "type": "peering_success",
-            "peering_id": self.id,
+            "peering_id": self.peering_id,
         }
 
 
 @dataclass(frozen=True)
 class EPeeringFailure:
-    id: int
+    peering_id: int
+    pg: PlacementGroupID_T
 
     def to_json(self):
         return {
             "type": "peering_fail",
-            "peering_id": self.id,
+            "peering_id": self.peering_id,
         }
-
-
-@dataclass()
-class EMainloopInteration:
-    callback_results: list["Event"]
 
 
 @dataclass
 class EOSDFailed:
-    osd: str
+    osd: DeviceID_T
 
     def to_json(self):
-        return {"type": "osd_failed", "osd": self.osd}
+        return {"type": "osd_failed", "osd": f"osd.{self.osd}"}
 
 
 @dataclass
 class EOSDRecovered:
-    osd: str
+    osd: DeviceID_T
 
     def to_json(self):
-        return {"type": "osd_recovered", "osd": self.osd}
+        return {"type": "osd_recovered", "osd": f"osd.{self.osd}"}
 
 
 EventTag = (
@@ -297,6 +306,14 @@ class PlacementGroup:
     _maps: list[list[DeviceID_T]] = field(init=False, default_factory=list)
     is_peering: bool = field(init=False, default=False)
 
+    def start_peering(self):
+        print(f"{self.id} started peering")
+        self.is_peering = True
+
+    def stop_peering(self):
+        print(f"{self.id} ended peering")
+        self.is_peering = False
+
     @property
     def maps(self) -> list[list[DeviceID_T]]:
         return self._maps
@@ -312,8 +329,12 @@ class PlacementGroup:
         return syncing_maps, all(
             all(
                 any(
-                    context.alive_intervals_per_device[id].check_at_time(
-                        context.current_time + j * context.timestep
+                    (
+                        context.alive_intervals_per_device[id].check_at_time(
+                            context.current_time + j * context.timestep
+                        )
+                        if context.alive_intervals_per_device.get(id) is not None
+                        else False
                     )
                     for id in map
                 )
@@ -335,6 +356,8 @@ class PlacementGroup:
             context.current_time + context.user_conn_speed[primary_id]
         )
 
+        operation_id = hash((obj_id, time()))
+
         if not context.alive_intervals_per_device[primary_id].check_at_time(
             primary_write_time
         ) or not test_proba(
@@ -353,7 +376,9 @@ class PlacementGroup:
         print(f"osd.{primary_id} is alive at {primary_write_time}")
         res: list[Event] = [
             Event(
-                EPrimaryRecvSuccess(obj_id, self.id, [d_id for d_id in cur_map]),
+                EPrimaryRecvSuccess(
+                    operation_id, obj_id, self.id, [d_id for d_id in cur_map]
+                ),
                 primary_write_time,
                 lambda: self.logs[primary_id].ops.append(Operation(obj_id, op_type)),
             )
@@ -361,62 +386,66 @@ class PlacementGroup:
 
         secondary = cur_map[1:]
         failed = False
-        for d_id in secondary:
-            if context.alive_intervals_per_device[d_id].check_at_time(
-                primary_write_time + context.conn_speed[primary_id, d_id]
+        for device_id in secondary:
+            if context.alive_intervals_per_device[device_id].check_at_time(
+                primary_write_time + context.conn_speed[primary_id, device_id]
             ) and test_proba(
-                context.failure_proba[d_id],
+                context.failure_proba[device_id],
                 context.current_time,
                 obj_id,
-                d_id,
+                device_id,
             ):
                 res.append(
                     Event(
-                        EReplicaRecvSuccess(obj_id, self.id, d_id),
-                        primary_write_time + context.conn_speed[primary_id, d_id],
+                        EReplicaRecvSuccess(operation_id, obj_id, self.id, device_id),
+                        primary_write_time + context.conn_speed[primary_id, device_id],
                         (
                             lambda x: (
                                 lambda: self.logs[x].ops.append(
                                     Operation(obj_id, op_type)
                                 )
                             )
-                        )(d_id),
+                        )(device_id),
                     ),
                 )
                 res.append(
                     Event(
-                        EReplicaRecvAcknowledged(obj_id, self.id, d_id),
-                        primary_write_time + context.conn_speed[primary_id, d_id] + 1,
+                        EReplicaRecvAcknowledged(
+                            operation_id, obj_id, self.id, device_id
+                        ),
+                        primary_write_time
+                        + context.conn_speed[primary_id, device_id]
+                        + 1,
                     )
                 )
                 max_time = max(
                     max_time,
-                    primary_write_time + context.conn_speed[primary_id, d_id] + 1,
+                    primary_write_time + context.conn_speed[primary_id, device_id] + 1,
                 )
             else:
                 failed = True
                 res.append(
                     Event(
-                        EReplicaRecvFailure(obj_id, self.id, d_id),
-                        primary_write_time + context.conn_speed[primary_id, d_id],
+                        EReplicaRecvFailure(operation_id, obj_id, self.id, device_id),
+                        primary_write_time + context.conn_speed[primary_id, device_id],
                     )
                 )
                 max_time = max(
                     max_time,
-                    primary_write_time + context.conn_speed[primary_id, d_id],
+                    primary_write_time + context.conn_speed[primary_id, device_id],
                 )
 
         if failed:
             res.append(
                 Event(
-                    EPrimaryReplicationFail(obj_id, self.id, primary_id),
+                    EPrimaryReplicationFail(operation_id, obj_id, self.id, primary_id),
                     max_time + 1,
                 )
             )
         else:
             res.append(
                 Event(
-                    EPrimaryRecvAcknowledged(obj_id, self.id, primary_id),
+                    EPrimaryRecvAcknowledged(operation_id, obj_id, self.id, primary_id),
                     max_time + 1,
                 )
             )
@@ -436,6 +465,9 @@ class PGList:
 
     def __iter__(self) -> Iterator[PlacementGroup]:
         return iter(self._col)
+
+    def get(self, id: PlacementGroupID_T) -> PlacementGroup:
+        return self._col[id]
 
     def object_insert(self, context: Context, obj_id: ObjectID_T):
         h = hash(str(obj_id)) % len(self._col)
@@ -460,6 +492,7 @@ class PoolParams:
 
 def map_pg(
     root: Bucket,
+    devices: dict[DeviceID_T, Device],
     rule: Rule,
     tunables: Tunables,
     cfg: PoolParams,
@@ -474,10 +507,11 @@ def map_pg(
 
         prev_maps, success = pg.peer(context)
         devices_used_in_peering: set[DeviceID_T] = set()
-        for m in prev_maps:
-            devices_used_in_peering.update((d_id for d_id in m))
-
         peering_id = hash((pg.id, context.current_time))
+
+        for m in prev_maps:
+            devices_used_in_peering.update((d_id for d_id in m if d_id in devices))
+
         events.append(
             Event(
                 EPeeringStart(
@@ -487,6 +521,7 @@ def map_pg(
                     [d.info.id for d in res],
                 ),
                 context.current_time,
+                (lambda x: lambda: x.start_peering())(pg),
             )
         )
 
@@ -494,7 +529,7 @@ def map_pg(
             inner_pg: PlacementGroup, ds: list[Device]
         ) -> Callable[[], None]:
             def inner():
-                inner_pg.is_peering = False
+                inner_pg.stop_peering()
                 inner_pg.last_sync = len(inner_pg.maps)
                 inner_pg.maps.append([d.info.id for d in ds])
 
@@ -502,15 +537,14 @@ def map_pg(
 
         def fail_wrapper(inner_pg: PlacementGroup) -> Callable[[], None]:
             def inner():
-                inner_pg.is_peering = False
+                inner_pg.stop_peering()
 
             return inner
 
-        pg.is_peering = True
         if success:
             events.append(
                 Event(
-                    EPeeringSuccess(peering_id),
+                    EPeeringSuccess(peering_id, pg.id),
                     context.current_time + context.timestep * context.timesteps_to_peer,
                     success_wrapper(pg, res),
                 )
@@ -518,7 +552,7 @@ def map_pg(
         else:
             events.append(
                 Event(
-                    EPeeringFailure(peering_id),
+                    EPeeringFailure(peering_id, pg.id),
                     context.current_time + context.timestep * context.timesteps_to_peer,
                     fail_wrapper(pg),
                 )
@@ -543,16 +577,16 @@ def get_iteration_event(
                 if devices[d_id].weight != init_weights[d_id]:
                     devices[d_id].update_weight(init_weights[d_id])
                     tag.callback_results.append(
-                        Event(EOSDRecovered(f"osd.{d_id}"), context.current_time)
+                        Event(EOSDRecovered(d_id), context.current_time)
                     )
             else:
                 if devices[d_id].weight == init_weights[d_id]:
                     devices[d_id].update_weight(OutOfClusterWeight)
                     tag.callback_results.append(
-                        Event(EOSDFailed(f"osd.{d_id}"), context.current_time)
+                        Event(EOSDFailed(d_id), context.current_time)
                     )
 
-        tag.callback_results.extend(map_pg(root, rule, tunables, cfg, context))
+        tag.callback_results.extend(map_pg(root, devices, rule, tunables, cfg, context))
 
         context.do_time_step()
         tag.callback_results.append(

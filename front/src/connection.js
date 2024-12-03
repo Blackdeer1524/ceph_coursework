@@ -1046,6 +1046,7 @@ export function drawHierarchy(
  * @param {Map<string, OSD>} name2osd
  */
 export function setupMapping(pgId, registry, map, name2osd) {
+  console.log(`setting up a map for ${pgId}: ${map}`)
   if (map.length == 0) {
     return;
   }
@@ -1055,9 +1056,15 @@ export function setupMapping(pgId, registry, map, name2osd) {
   }
 
   let primaryOSD = name2osd.get(map[0]);
+  if (primaryOSD === undefined) {
+    return;
+  }
   primaryOSD.addPG(pgId, true);
   for (let i = 1; i < map.length; ++i) {
     let secondaryOSD = name2osd.get(map[i]);
+    if (secondaryOSD === undefined) {
+      continue;
+    }
     secondaryOSD.addPG(pgId, false);
     primaryOSD.connect(secondaryOSD, pgId);
   }
@@ -1097,6 +1104,7 @@ export function adjustHierarchy(oldName2osd, oldRegistry, newName2osd) {
       if (childOSD === undefined) {
         return;
       }
+      primaryOSD.addPG(pgId, false);
       primaryOSD.connect(childOSD, pgId);
     });
   });

@@ -128,19 +128,20 @@ def setup_event_queue(r: ParserResult) -> SetupResult:
     return SetupResult([loop], pgs, context, r.devices)
 
 
-def adjustMapping(r: ParserResult, setup: SetupResult):
+def adjust_mapping(r: ParserResult, setup: SetupResult):
     DEATH_PROBA = 0.25
 
     context = Context(
         current_time=setup.context.current_time,
-        timestep=20,
-        timesteps_to_peer=2,
-        timeout=70,
-        user_conn_speed=defaultdict(lambda: 20),
-        conn_speed=defaultdict(lambda: 20),
-        failure_proba=defaultdict(lambda: 0.05),
+        timestep=setup.context.timestep,
+        timesteps_to_peer=setup.context.timesteps_to_peer,
+        timeout=setup.context.timeout,
+        user_conn_speed=setup.context.user_conn_speed,
+        conn_speed=setup.context.conn_speed,
+        failure_proba=setup.context.failure_proba,
         alive_intervals_per_device={},
     )
+
     init_weights: dict[DeviceID_T, WeightT] = {}
     for d in r.devices.values():
         init_weights[d.info.id] = d.weight
@@ -150,12 +151,16 @@ def adjustMapping(r: ParserResult, setup: SetupResult):
 
         oldDevice = setup.devices.get(d.info.id)
         if oldDevice is not None and oldDevice.weight == OutOfClusterWeight:
-            d.update_weight(oldDevice.weight)
+            d.update_weight(OutOfClusterWeight)
 
     tunables = Tunables(5)
     cfg = PoolParams(size=3, min_size=2, pgs=setup.pgs)
+
     new_loop: list[Event] = []
-    for e in setup.queue:
+    new_peerings: set[int] = set()
+    failing_ops: set[int] = set()
+    while len(setup.queue) > 0:
+        e = heapq.heappop(setup.queue)
         match e.tag:
             case EMainloopInteration():
                 heapq.heappush(
@@ -170,24 +175,107 @@ def adjustMapping(r: ParserResult, setup: SetupResult):
                         context,
                     ),
                 )
-            case EPeeringSuccess() | EPeeringFailure() | EOSDFailed() | EOSDRecovered():
+            case ESendFailure():
                 heapq.heappush(new_loop, e)
-            case _:
-                ...
-    setup.queue = new_loop
+            case EPrimaryRecvSuccess() as tag:
+                primary_osd = tag.cur_map[0]
+                if primary_osd not in r.devices:
+                    heapq.heappush(
+                        new_loop,
+                        Event(
+                            ESendFailure(tag.obj, f"couldn't find osd.{primary_osd}"),
+                            e.time,
+                        ),
+                    )
+                    failing_ops.add(tag.operation_id)
+                    continue
+
+                new_map = [primary_osd]
+                for i in range(1, len(tag.cur_map)):
+                    if tag.cur_map[i] not in r.devices:
+                        failing_ops.add(tag.operation_id)
+                    else:
+                        new_map.append(tag.cur_map[i])
+
+                heapq.heappush(
+                    new_loop,
+                    Event(
+                        EPrimaryRecvSuccess(tag.operation_id, tag.obj, tag.pg, new_map),
+                        e.time,
+                    ),
+                )
+            case EPrimaryRecvFailure(osd=osd):
+                if osd not in r.devices:
+                    continue
+                heapq.heappush(new_loop, e)
+            case EPrimaryRecvAcknowledged(operation_id=id):
+                if e.tag.osd not in r.devices:
+                    continue
+                if id in failing_ops:
+                    heapq.heappush(
+                        new_loop,
+                        Event(
+                            EPrimaryReplicationFail(id, e.tag.obj, e.tag.pg, e.tag.osd),
+                            e.time,
+                        ),
+                    )
+                else:
+                    heapq.heappush(new_loop, e)
+            case EPrimaryReplicationFail(operation_id=id):
+                if e.tag.osd not in r.devices:
+                    continue
+                heapq.heappush(new_loop, e)
+            case EReplicaRecvSuccess():
+                if e.tag.osd not in r.devices:
+                    continue
+                heapq.heappush(new_loop, e)
+            case EReplicaRecvFailure(operation_id=id):
+                if e.tag.osd not in r.devices:
+                    continue
+                heapq.heappush(new_loop, e)
+            case EReplicaRecvAcknowledged():
+                if e.tag.osd not in r.devices:
+                    continue
+                heapq.heappush(new_loop, e)
+            case EPeeringStart():
+                new_peerings.add(e.tag.peering_id)
+            case EPeeringSuccess() as tag:
+                if e.tag.peering_id in new_peerings:
+                    continue
+                heapq.heappush(
+                    new_loop,
+                    Event(
+                        EPeeringFailure(e.tag.peering_id, e.tag.pg),
+                        e.time,
+                        (lambda x: lambda: setup.pgs.get(x).stop_peering())(tag.pg),
+                    ),
+                )
+            case EPeeringFailure():
+                if e.tag.peering_id in new_peerings:
+                    continue
+                heapq.heappush(new_loop, e)
+            case EOSDFailed():
+                if e.tag.osd not in r.devices:
+                    continue
+                heapq.heappush(new_loop, e)
+            case EOSDRecovered():
+                if e.tag.osd not in r.devices:
+                    continue
+                heapq.heappush(new_loop, e)
+    return SetupResult(new_loop, setup.pgs, context, r.devices)
 
 
-async def handler(websocket):
+async def handler(websocket):  # type: ignore
     setup: SetupResult | None = None
-    async for message in websocket:
-        m = json.loads(message)
+    async for message in websocket:  # type: ignore
+        m = json.loads(message)  # type: ignore
         match m["type"]:
             case "adjust_rule":
                 assert setup is not None
                 try:
                     r = Parser(m["message"]).parse()
                 except ParsingError as e:
-                    await websocket.send(
+                    await websocket.send(  # type: ignore
                         json.dumps(
                             {
                                 "type": "hierarchy_fail",
@@ -197,8 +285,8 @@ async def handler(websocket):
                     )
                 else:
                     hierarchy = r.root.to_json()
-                    adjustMapping(r, setup)
-                    await websocket.send(
+                    setup = adjust_mapping(r, setup)
+                    await websocket.send(  # type: ignore
                         json.dumps(
                             {
                                 "type": "adjust_hierarchy_success",
@@ -210,7 +298,7 @@ async def handler(websocket):
                 try:
                     r = Parser(m["message"]).parse()
                 except ParsingError as e:
-                    await websocket.send(
+                    await websocket.send(  # type: ignore
                         json.dumps(
                             {
                                 "type": "hierarchy_fail",
@@ -221,7 +309,7 @@ async def handler(websocket):
                 else:
                     hierarchy = r.root.to_json()
                     setup = setup_event_queue(r)
-                    await websocket.send(
+                    await websocket.send(  # type: ignore
                         json.dumps(
                             {
                                 "type": "hierarchy_success",
@@ -232,7 +320,7 @@ async def handler(websocket):
             case "step":
                 assert setup is not None
                 time, messages = process_pending_events(setup.queue)
-                await websocket.send(
+                await websocket.send(  # type: ignore
                     json.dumps(
                         {"type": "events", "timestamp": time, "events": messages}
                     )
@@ -248,11 +336,9 @@ async def handler(websocket):
 
 
 async def test():
-    async with serve(handler, "localhost", 8080) as server:
-        await server.serve_forever()
+    async with serve(handler, "localhost", 8080) as server:  # type: ignore
+        await server.serve_forever()  # type: ignore
 
 
 if __name__ == "__main__":
     asyncio.run(test())
-
-    # main()

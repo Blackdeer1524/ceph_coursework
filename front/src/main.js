@@ -103,6 +103,21 @@ function main() {
     let objId = 0;
 
     let editor = document.getElementById("editor");
+    editor.addEventListener("keydown", function (e) {
+      if (e.key == "Tab") {
+        e.preventDefault();
+        var start = this.selectionStart;
+        var end = this.selectionEnd;
+
+        // set textarea value to: text before caret + tab + text after caret
+        this.value =
+          this.value.substring(0, start) + "\t" + this.value.substring(end);
+
+        // put caret at right position again
+        this.selectionStart = this.selectionEnd = start + 1;
+      }
+    });
+
     let submitButton = document.getElementById("config-submit");
     submitButton.onclick = (e) => {
       objId = 0;
@@ -282,7 +297,6 @@ function main() {
               break;
             }
             case "primary_recv_ack": {
-              let primary = state.registry.get(e.pg);
               animateSendStatus(
                 e.objId,
                 e.pg,
@@ -292,7 +306,6 @@ function main() {
               break;
             }
             case "primary_replication_fail": {
-              let primary = state.registry.get(e.pg);
               animateSendStatus(
                 e.objId,
                 e.pg,
@@ -357,19 +370,17 @@ function main() {
             case "peering_fail": {
               let info = state.peeringInfo.get(e.peering_id);
               info.peeringOsds.forEach((osdName) => {
-                state.name2osd.get(osdName).pgs.get(info.pg).endPeering();
+                state.name2osd.get(osdName)?.pgs.get(info.pg).endPeering();
               });
               state.peeringInfo.delete(e.peering_id);
               break;
             }
             case "osd_failed": {
-              console.log(`${timestamp}: ${e.osd} failed`);
-              state.name2osd.get(e.osd).fail();
+              state.name2osd.get(e.osd)?.fail();
               break;
             }
             case "osd_recovered": {
-              console.log(`${timestamp}: ${e.osd} recovered`);
-              state.name2osd.get(e.osd).recover();
+              state.name2osd.get(e.osd)?.recover();
               break;
             }
           }
