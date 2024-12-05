@@ -206,9 +206,30 @@ function main() {
    */
   let state = null;
 
+  class LockButton {
+    constructor(button) {
+      this.button = button;
+      this.c = 0;
+    }
+
+    lock() {
+      if (this.c == 0) {
+        this.button.disabled = true;
+      }
+      ++this.c;
+    }
+
+    unlock() {
+      --this.c;
+      if (this.c == 0) {
+        this.button.disabled = false;
+      }
+    }
+  }
+
+  let simStart = new LockButton(document.getElementById("sim-start"));
   socket.addEventListener("message", (event) => {
     let res = JSON.parse(event.data);
-    let simStart = document.getElementById("sim-start")
 
     switch (res.type) {
       case "hierarchy_fail": {
@@ -277,14 +298,12 @@ function main() {
           console.log(e.type);
           switch (e.type) {
             case "send_fail": {
-              simStart.disabled = true;
-              animateSendFailure(e.objId, state.start, () => {
-                simStart.disabled = false;
-              });
+              simStart.lock();
+              animateSendFailure(e.objId, state.start, () => simStart.unlock());
               break;
             }
             case "primary_recv_success": {
-              simStart.disabled = true;
+              simStart.lock();
               animateSendToPrimary(
                 e.objId,
                 e.pg,
@@ -301,9 +320,8 @@ function main() {
                     e.pg,
                     e.map,
                     state.name2osd,
-                    () => {
-                      simStart.disabled = false;
-                    },
+                    simStart,
+                    () => simStart.unlock(),
                   );
                 },
               );
@@ -311,10 +329,10 @@ function main() {
             }
             case "primary_recv_fail": {
               let primaryOSD = state.name2osd.get(e.osd);
-              simStart.disabled = true;
+              simStart.lock();
               animateSendToPrimary(e.objId, e.pg, primaryOSD, () => {
                 animateSendStatus(e.objId, e.pg, primaryOSD, "failRecv");
-                simStart.disabled = false;
+                simStart.unlock(`primary failure for ${e.objId}`);
               });
               break;
             }
@@ -376,7 +394,6 @@ function main() {
             }
             case "peering_success": {
               let info = state.peeringInfo.get(e.peering_id);
-              console.log("peering success: ", info);
               setupMapping(
                 info.pg,
                 state.registry,

@@ -157,28 +157,30 @@ export function animateSendToPrimary(objId, pgId, osd, callback) {
  * @param {number} pgId
  * @param {string[]} newMap
  * @param {Map<string, OSD>} name2osd
- * @param {function} callback
+ * @param {Any} lock
  */
-export function animateSendToReplicas(objId, pgId, newMap, name2osd, callback) {
+export function animateSendToReplicas(
+  objId,
+  pgId,
+  newMap,
+  name2osd,
+  lock,
+  callback,
+) {
   if (newMap.length === 1) {
     return;
   }
   let primaryOSD = name2osd.get(newMap[0]);
-  /**
-   * @type {RCPath[]}
-   */
-  let paths = [];
   for (let i = 1; i < newMap.length; ++i) {
     let secondaryOSD = name2osd.get(newMap[i]);
-    paths.push(primaryOSD.connectTmp(secondaryOSD, pgId));
-  }
-
-  paths.forEach((path) =>
+    let path = primaryOSD.connectTmp(secondaryOSD, pgId);
+    lock.lock();
     animatePath(objId, path.path, primaryOSD.canvas, () => {
-      callback();
+      lock.unlock();
       path.down();
-    }),
-  );
+    });
+  }
+  callback();
 }
 
 /**
