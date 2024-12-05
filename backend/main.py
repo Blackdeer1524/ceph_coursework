@@ -96,7 +96,7 @@ class SetupResult:
 
 
 # info: a lot of params can be made params to this function
-def setup_event_queue(r: ParserResult) -> SetupResult:
+def setup_event_queue(r: ParserResult, death_proba: float) -> SetupResult:
     context = Context(
         current_time=0,
         timestep=20,
@@ -106,14 +106,13 @@ def setup_event_queue(r: ParserResult) -> SetupResult:
         conn_speed=defaultdict(lambda: 20),
         failure_proba=defaultdict(lambda: 0.05),
         alive_intervals_per_device={},
+        death_proba=death_proba,
     )
-
-    DEATH_PROBA = 0.25
 
     init_weights: dict[DeviceID_T, WeightT] = {}
     for d in r.devices.values():
         context.alive_intervals_per_device[d.info.id] = AliveIntervals(
-            d.info.id, DEATH_PROBA
+            d.info.id, context.death_proba
         )
         init_weights[d.info.id] = d.weight
 
@@ -129,8 +128,6 @@ def setup_event_queue(r: ParserResult) -> SetupResult:
 
 
 def adjust_mapping(r: ParserResult, setup: SetupResult):
-    DEATH_PROBA = 0.25
-
     context = Context(
         current_time=setup.context.current_time,
         timestep=setup.context.timestep,
@@ -140,13 +137,15 @@ def adjust_mapping(r: ParserResult, setup: SetupResult):
         conn_speed=setup.context.conn_speed,
         failure_proba=setup.context.failure_proba,
         alive_intervals_per_device={},
+        death_proba=setup.context.death_proba,
     )
 
+    new_loop: list[Event] = []
     init_weights: dict[DeviceID_T, WeightT] = {}
     for d in r.devices.values():
         init_weights[d.info.id] = d.weight
         context.alive_intervals_per_device[d.info.id] = AliveIntervals(
-            d.info.id, DEATH_PROBA
+            d.info.id, context.death_proba
         )
 
         oldDevice = setup.devices.get(d.info.id)
@@ -156,7 +155,6 @@ def adjust_mapping(r: ParserResult, setup: SetupResult):
     tunables = Tunables(5)
     cfg = PoolParams(size=3, min_size=2, pgs=setup.pgs)
 
-    new_loop: list[Event] = []
     new_peerings: set[int] = set()
     failing_ops: set[int] = set()
     while len(setup.queue) > 0:
@@ -270,6 +268,13 @@ async def handler(websocket):  # type: ignore
     async for message in websocket:  # type: ignore
         m = json.loads(message)  # type: ignore
         match m["type"]:
+            case "mode":
+                assert setup is not None
+                new_mode = m["new_mode"]
+                if new_mode == "randomized":
+                    setup.context.update_death_proba(0.25)
+                else:
+                    setup.context.update_death_proba(0)
             case "adjust_rule":
                 assert setup is not None
                 try:
@@ -308,7 +313,9 @@ async def handler(websocket):  # type: ignore
                     )
                 else:
                     hierarchy = r.root.to_json()
-                    setup = setup_event_queue(r)
+                    setup = setup_event_queue(
+                        r, setup.context.death_proba if setup is not None else 0.25
+                    )
                     await websocket.send(  # type: ignore
                         json.dumps(
                             {

@@ -14,16 +14,21 @@
         <div class="flex-grow overflow-x-auto overflow-y-hidden m-1">
           <textarea class="w-[80ch] h-full" id="editor"></textarea>
         </div>
-        <div class="p-1 flex flex-row-reverse gap-2 border-t border-black">
+        <div class="p-2 flex flex-row-reverse gap-2 border-t border-black">
           <button id="config-submit">Submit</button>
           <button id="config-adjust">Adjust</button>
         </div>
       </div>
       <div class="bg-blue-300 w-[70%] flex flex-col">
-        <div
-          class="bg-white p-1 flex flex-row-reverse gap-2 border-b border-black"
-        >
-          <button id="sim-start" class="border">Step</button>
+        <div class="bg-white p-1 border-b border-black flex flex-row">
+          <div class="flex flex-grow flex-row gap-2">
+            <button id="mode-toggle" class="border w-[25ch]">
+              Mode: <label id="mode-label">Randomized</label>
+            </button>
+          </div>
+          <div class="flex flex-grow flex-row-reverse gap-2">
+            <button id="sim-start" class="border">Step</button>
+          </div>
         </div>
         <div class="flex-grow overflow-hidden relative">
           <div

@@ -278,6 +278,9 @@ class AliveIntervals:
     def check_at_time(self, t: int) -> bool:
         return test_proba(self.p_die, self.id, str(t))
 
+    def update_death_proba(self, p: float):
+        self.p_die = p
+
 
 @dataclass
 class Context:
@@ -294,8 +297,15 @@ class Context:
 
     alive_intervals_per_device: dict[DeviceID_T, AliveIntervals]
 
+    death_proba: float
+
     def do_time_step(self):
         self.current_time += self.timestep
+
+    def update_death_proba(self, p: float):
+        self.death_proba = p
+        for interval in self.alive_intervals_per_device.values():
+            interval.update_death_proba(p)
 
 
 @dataclass
@@ -501,9 +511,11 @@ def map_pg(
     for pg in cfg.pgs:
         res = apply(pg.id, root, rule, cfg.size, tunables)
         assert not isinstance(res, str), res
+        res = [d.info.id for d in res]
         if pg.is_peering or (len(pg.maps) > 0 and pg.maps[-1] == res):
             continue
 
+        print(res, pg.maps[-1] if len(pg.maps) > 0 else None)
         prev_maps, success = pg.peer(context)
         devices_used_in_peering: set[DeviceID_T] = set()
         peering_id = hash((pg.id, context.current_time))
@@ -517,7 +529,7 @@ def map_pg(
                     peering_id,
                     pg.id,
                     list(devices_used_in_peering),
-                    [d.info.id for d in res],
+                    res,
                 ),
                 context.current_time,
                 (lambda x: lambda: x.start_peering())(pg),
@@ -525,12 +537,12 @@ def map_pg(
         )
 
         def success_wrapper(
-            inner_pg: PlacementGroup, ds: list[Device]
+            inner_pg: PlacementGroup, ds: list[DeviceID_T]
         ) -> Callable[[], None]:
             def inner():
                 inner_pg.stop_peering()
                 inner_pg.last_sync = len(inner_pg.maps)
-                inner_pg.maps.append([d.info.id for d in ds])
+                inner_pg.maps.append(ds)
 
             return inner
 
@@ -572,15 +584,20 @@ def get_iteration_event(
 
     def callback():
         for d_id, intervals in context.alive_intervals_per_device.items():
-            if intervals.check_at_time(context.current_time):
-                if devices[d_id].weight != init_weights[d_id]:
-                    devices[d_id].update_weight(init_weights[d_id])
+            device = devices[d_id]
+            if init_weights[d_id] == OutOfClusterWeight:
+                tag.callback_results.append(
+                    Event(EOSDFailed(d_id), context.current_time)
+                )
+            elif intervals.check_at_time(context.current_time):
+                if device.weight != init_weights[d_id]:
+                    device.update_weight(init_weights[d_id])
                     tag.callback_results.append(
                         Event(EOSDRecovered(d_id), context.current_time)
                     )
             else:
-                if devices[d_id].weight == init_weights[d_id]:
-                    devices[d_id].update_weight(OutOfClusterWeight)
+                if device.weight == init_weights[d_id]:
+                    device.update_weight(OutOfClusterWeight)
                     tag.callback_results.append(
                         Event(EOSDFailed(d_id), context.current_time)
                     )

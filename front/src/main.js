@@ -87,20 +87,20 @@ rule hot {
 let timestampLabel = document.getElementById("time-label");
 
 function main() {
-  let simStart = document.getElementById("sim-start");
   var socket = new WebSocket("ws://localhost:8080");
 
-  simStart.onclick = (e) => {
-    socket.send(
-      JSON.stringify({
-        type: "step",
-      }),
-    );
-  };
+  let isRandomized = true;
 
   document.getElementById("editor").value = DEFAULT_CONFIG;
   socket.addEventListener("open", (event) => {
     let objId = 0;
+    document.getElementById("sim-start").onclick = (e) => {
+      socket.send(
+        JSON.stringify({
+          type: "step",
+        }),
+      );
+    };
 
     let editor = document.getElementById("editor");
     editor.addEventListener("keydown", function (e) {
@@ -155,7 +155,28 @@ function main() {
       document.getElementById("pop-up").style.visibility = "hidden";
     };
 
-    console.log("sent a mapping");
+    document.getElementById("mode-toggle").onclick = (e) => {
+      isRandomized = !isRandomized;
+      let modeLabel = document.getElementById("mode-label");
+      if (isRandomized) {
+        modeLabel.innerHTML = "Randomized";
+        socket.send(
+          JSON.stringify({
+            type: "mode",
+            new_mode: "randomized",
+          }),
+        );
+      } else {
+        modeLabel.innerHTML = "Manual";
+        socket.send(
+          JSON.stringify({
+            type: "mode",
+            new_mode: "manual",
+          }),
+        );
+      }
+    };
+
     socket.send(
       JSON.stringify({
         type: "rule",
@@ -187,6 +208,7 @@ function main() {
 
   socket.addEventListener("message", (event) => {
     let res = JSON.parse(event.data);
+    let simStart = document.getElementById("sim-start")
 
     switch (res.type) {
       case "hierarchy_fail": {
