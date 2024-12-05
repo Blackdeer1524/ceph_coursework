@@ -76,17 +76,14 @@ function animatePath(objId, path, canvas, callback) {
     let blob = new Blob(objId, startX, startY, "sending");
     canvas.add(blob.g);
 
-    let done = false;
     blob.g.animate(
-      { left: endX - Blob.radius, top: endY - Blob.radius },
+      endX - Blob.radius > 0
+        ? { left: endX - Blob.radius }
+        : { top: endY - Blob.radius },
       {
-        duration: Math.max(lineLength * 2, 300),
+        duration: lineLength * 2,
         onChange: canvas.renderAll.bind(canvas),
         onComplete: () => {
-          if (done) {
-            return; // onComplete is somehow called multiple times.
-          }
-          done = true;
           canvas.remove(blob.g);
           draw(path, i + 1);
         },
