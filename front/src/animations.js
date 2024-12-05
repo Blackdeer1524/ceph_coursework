@@ -63,15 +63,14 @@ class Blob {
  */
 function animatePath(objId, path, canvas, callback) {
   function draw(path, i) {
-    if (i >= path.length) {
+    if (i >= path.points.length) {
       callback();
       return;
     }
-    let l = path[i];
-    const startX = l.x1;
-    const startY = l.y1;
-    const endX = l.x2;
-    const endY = l.y2;
+    const startX = path.points[i - 1].x;
+    const startY = path.points[i - 1].y;
+    const endX = path.points[i].x;
+    const endY = path.points[i].y;
     let lineLength = ((endX - startX) ** 2 + (endY - startY) ** 2) ** (1 / 2);
 
     let blob = new Blob(objId, startX, startY, "sending");
@@ -94,7 +93,7 @@ function animatePath(objId, path, canvas, callback) {
       },
     );
   }
-  draw(path, 0);
+  draw(path, 1);
 }
 
 /**
@@ -168,15 +167,16 @@ export function animateSendToReplicas(
   callback,
 ) {
   if (newMap.length === 1) {
+    callback();
     return;
   }
   let primaryOSD = name2osd.get(newMap[0]);
   for (let i = 1; i < newMap.length; ++i) {
     let secondaryOSD = name2osd.get(newMap[i]);
     let path = primaryOSD.connectTmp(secondaryOSD, pgId);
-    lock.lock();
+    lock.lock(`${objId} locked for sending`);
     animatePath(objId, path.path, primaryOSD.canvas, () => {
-      lock.unlock();
+      lock.unlock(`${objId} was sent to replica`);
       path.down();
     });
   }

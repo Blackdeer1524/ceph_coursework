@@ -296,6 +296,7 @@ async def handler(websocket):  # type: ignore
                             {
                                 "type": "adjust_hierarchy_success",
                                 "data": hierarchy,
+                                "timestamp": setup.context.current_time,
                             }
                         )
                     )

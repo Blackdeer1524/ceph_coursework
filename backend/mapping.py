@@ -358,7 +358,7 @@ class PlacementGroup:
         self, context: Context, obj_id: ObjectID_T, op_type: Operation.OpType
     ) -> list[Event]:
         if len(self.maps) == 0 or len(self.maps[-1]) == 0:
-            return [Event(ESendFailure(obj_id, "bad map"), context.current_time)]
+            return [Event(ESendFailure(obj_id, "empty map"), context.current_time)]
         cur_map = self.maps[-1]
 
         primary_id = cur_map[0]

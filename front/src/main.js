@@ -219,11 +219,12 @@ function main() {
       ++this.c;
     }
 
-    unlock() {
+    unlock(meta) {
       --this.c;
       if (this.c == 0) {
         this.button.disabled = false;
       }
+      console.log(meta, this.c)
     }
   }
 
@@ -283,6 +284,7 @@ function main() {
           state.interPgConnAlloc,
         );
         adjustHierarchy(oldState.name2osd, oldState.registry, state.name2osd);
+        timestampLabel.innerHTML = res.timestamp;
         break;
       }
       case "events":
@@ -293,13 +295,12 @@ function main() {
         let timestamp = res.timestamp;
         timestampLabel.innerHTML = timestamp;
         let events = res.events;
-        console.log("=====================");
+        console.log(`${timestamp}=====================`);
         for (let e of events) {
-          console.log(e.type);
           switch (e.type) {
             case "send_fail": {
-              simStart.lock();
-              animateSendFailure(e.objId, state.start, () => simStart.unlock());
+              console.log(`${e.objId} failed. reason: ${e.reason}`)
+              animateSendFailure(e.objId, state.start, () => null);
               break;
             }
             case "primary_recv_success": {
@@ -321,7 +322,7 @@ function main() {
                     e.map,
                     state.name2osd,
                     simStart,
-                    () => simStart.unlock(),
+                    () => simStart.unlock(`${e.objId} sent to replicas`),
                   );
                 },
               );

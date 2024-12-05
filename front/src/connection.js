@@ -1,4 +1,4 @@
-import { Canvas, Circle, Group, Line, Rect, Textbox, util } from "fabric";
+import { Canvas, Line, Polyline, Rect, Textbox, util } from "fabric";
 
 export class PrimaryRegistry {
   constructor() {
@@ -339,44 +339,35 @@ export class Bucket {
     const spaceBetween =
       child.drawnObj.top - (this.drawnObj.top + Bucket.height);
 
-    let path = [
-      new Line(
-        [
-          myMidpoint,
-          this.drawnObj.top + Bucket.height,
-          myMidpoint,
-          this.drawnObj.top + Bucket.height + spaceBetween / 2,
-        ],
+    let path = new Polyline(
+      [
+        { x: myMidpoint, y: this.drawnObj.top + Bucket.height },
         {
-          stroke: "green",
+          x: myMidpoint,
+          y: this.drawnObj.top + Bucket.height + spaceBetween / 2,
         },
-      ),
-      new Line(
-        [
-          myMidpoint,
-          this.drawnObj.top + Bucket.height + spaceBetween / 2,
-          otherMidpoint,
-          this.drawnObj.top + Bucket.height + spaceBetween / 2,
-        ],
         {
-          stroke: "green",
+          x: otherMidpoint,
+          y: this.drawnObj.top + Bucket.height + spaceBetween / 2,
         },
-      ),
-      new Line(
-        [
-          otherMidpoint,
-          this.drawnObj.top + Bucket.height + spaceBetween / 2,
-          otherMidpoint,
-          child.drawnObj.top,
-        ],
-        {
-          stroke: "green",
-        },
-      ),
-    ];
+        { x: otherMidpoint, y: child.drawnObj.top },
+      ],
+      {
+        stroke: "green",
+        fill: null,
 
-    path.forEach((l) => this.canvas.add(l));
-
+        lockMovementX: true,
+        lockMovementY: true,
+        lockRotation: true,
+        lockScalingX: true,
+        lockScalingY: true,
+        lockUniScaling: true,
+        lockSkewingX: true,
+        lockSkewingY: true,
+      },
+    );
+    
+    this.canvas.add(path);
     this.connectors.set(child.name, path);
   }
 }
@@ -484,15 +475,13 @@ export class ConnectorAllocator {
 export class RCPath {
   /**
    * @param {string} name
-   * @param {Line[]} path
+   * @param {Polyline} path
    * @param {Canvas} canvas
-   * @param {function():Line[]} redraw
+   * @param {function():Polyline} redraw
    * @param {function():null} destructor
    */
   constructor(name, path, canvas, redraw, destructor) {
-    path.forEach((l) => {
-      canvas.add(l);
-    });
+    canvas.add(path);
     this.name = name;
     this.path = path;
     this.canvas = canvas;
@@ -506,9 +495,9 @@ export class RCPath {
       throw Error(`tried to redraw dealocated path "${this.paht}"`);
     }
     console.log(`${this.name} is redrawing`);
-    this.path.forEach((l) => this.canvas.remove(l));
+    this.canvas.remove(this.path);
     this.path = this.redraw_func();
-    this.path.forEach((l) => this.canvas.add(l));
+    this.canvas.add(this.path);
   }
 
   up() {
@@ -523,7 +512,7 @@ export class RCPath {
   down() {
     --this.count;
     if (this.count == 0) {
-      this.path.forEach((l) => this.canvas.remove(l));
+      this.canvas.remove(this.path);
       this.path = null;
       this.destructor();
     }
@@ -666,35 +655,28 @@ class PG {
     const indent = this.bucketPgConnAlloc.getIndent(this.bucketConnectorID);
     const myHeightMidpoint = bucket.drawnObj.top + bucket.drawnObj.height / 2;
     const pgHeightMidpoint = this.drawnObj.top + this.drawnObj.height / 2;
-    let path = [
-      new Line(
-        [
-          bucket.drawnObj.left,
-          myHeightMidpoint,
-          bucket.drawnObj.left - indent,
-          myHeightMidpoint,
-        ],
-        { stroke: this.bucketConnectorColor },
-      ),
-      new Line(
-        [
-          bucket.drawnObj.left - indent,
-          myHeightMidpoint,
-          bucket.drawnObj.left - indent,
-          pgHeightMidpoint,
-        ],
-        { stroke: this.bucketConnectorColor },
-      ),
-      new Line(
-        [
-          bucket.drawnObj.left - indent,
-          pgHeightMidpoint,
-          this.drawnObj.left,
-          pgHeightMidpoint,
-        ],
-        { stroke: this.bucketConnectorColor },
-      ),
-    ];
+
+    let path = new Polyline(
+      [
+        { x: bucket.drawnObj.left, y: myHeightMidpoint },
+        { x: bucket.drawnObj.left - indent, y: myHeightMidpoint },
+        { x: bucket.drawnObj.left - indent, y: pgHeightMidpoint },
+        { x: this.drawnObj.left, y: pgHeightMidpoint },
+      ],
+      {
+        stroke: this.bucketConnectorColor,
+        fill: null,
+
+        lockMovementX: true,
+        lockMovementY: true,
+        lockRotation: true,
+        lockScalingX: true,
+        lockScalingY: true,
+        lockUniScaling: true,
+        lockSkewingX: true,
+        lockSkewingY: true,
+      },
+    );
     return path;
   }
 
@@ -764,110 +746,69 @@ class PG {
 
     let path = [];
     if (this.col < replica.col) {
+      path.push({
+        x: this.drawnObj.left + this.drawnObj.width,
+        y: this.drawnObj.top + this.drawnObj.height / 2,
+      });
       let lastX = this.drawnObj.left + this.drawnObj.width + PGBoxGap + indent;
       let lastY = this.drawnObj.top + this.drawnObj.height / 2;
-      path.push(
-        new Line(
-          [
-            this.drawnObj.left + this.drawnObj.width,
-            this.drawnObj.top + this.drawnObj.height / 2,
-            lastX,
-            lastY,
-          ],
-          { stroke: this.connectorColor },
-        ),
-      );
+      path.push({ x: lastX, y: lastY });
       let n = replica.col - this.col - 1;
       for (let i = 0; i < n; ++i) {
         let passOSD = this.lastColOSD[this.col + i + 1].drawnObj;
         let newY = passOSD.top + passOSD.height + indent;
-        path.push(
-          new Line([lastX, lastY, lastX, newY], {
-            stroke: this.connectorColor,
-          }),
-        );
+        path.push({ x: lastX, y: newY });
         let newX = passOSD.left + passOSD.width + indent;
-        path.push(
-          new Line([lastX, newY, newX, newY], { stroke: this.connectorColor }),
-        );
+        path.push({ x: newX, y: newY });
         lastX = newX;
         lastY = newY;
       }
-
       let childMidpointY = replica.drawnObj.top + replica.drawnObj.height / 2;
-      path.push(
-        new Line([lastX, lastY, lastX, childMidpointY], {
-          stroke: this.connectorColor,
-        }),
-      );
-      path.push(
-        new Line(
-          [lastX, childMidpointY, replica.drawnObj.left, childMidpointY],
-          {
-            stroke: this.connectorColor,
-          },
-        ),
-      );
+      path.push({ x: lastX, y: childMidpointY });
+      path.push({ x: replica.drawnObj.left, y: childMidpointY });
     } else {
       let lastX = this.drawnObj.left + this.drawnObj.width + PGBoxGap + indent;
       let lastY = this.drawnObj.top + this.drawnObj.height / 2;
-      path.push(
-        new Line(
-          [
-            this.drawnObj.left + this.drawnObj.width,
-            this.drawnObj.top + this.drawnObj.height / 2,
-            lastX,
-            lastY,
-          ],
-          { stroke: this.connectorColor },
-        ),
-      );
+      path.push({
+        x: this.drawnObj.left + this.drawnObj.width,
+        y: this.drawnObj.top + this.drawnObj.height / 2,
+      });
+      path.push({ x: lastX, y: lastY });
       let n = this.col - replica.col + 1;
       for (let i = 0; i < n - 1; ++i) {
         let passOSD = this.lastColOSD[this.col - i].drawnObj;
         let newY = passOSD.top + passOSD.height + indent;
-        path.push(
-          new Line([lastX, lastY, lastX, newY], {
-            stroke: this.connectorColor,
-          }),
-        );
+        path.push({ x: lastX, y: newY });
         let newX = passOSD.left - SPACE_BETWEEN_OSD_COLS + indent;
-        path.push(
-          new Line([lastX, newY, newX, newY], { stroke: this.connectorColor }),
-        );
+        path.push({ x: newX, y: newY });
         lastX = newX;
         lastY = newY;
       }
       let passOSD = this.lastColOSD[replica.col].drawnObj;
       let newY = passOSD.top + passOSD.height + indent;
-      path.push(
-        new Line([lastX, lastY, lastX, newY], {
-          stroke: this.connectorColor,
-        }),
-      );
+      path.push({ x: lastX, y: newY });
       let newX = passOSD.left - SPACE_BETWEEN_OSD_COLS + indent;
-      path.push(
-        new Line([lastX, newY, newX, newY], { stroke: this.connectorColor }),
-      );
+      path.push({ x: newX, y: newY });
       lastX = newX;
       lastY = newY;
 
       let childMidpointY = replica.drawnObj.top + replica.drawnObj.height / 2;
-      path.push(
-        new Line([lastX, lastY, lastX, childMidpointY], {
-          stroke: this.connectorColor,
-        }),
-      );
-      path.push(
-        new Line(
-          [lastX, childMidpointY, replica.drawnObj.left, childMidpointY],
-          {
-            stroke: this.connectorColor,
-          },
-        ),
-      );
+      path.push({ x: lastX, y: childMidpointY });
+      path.push({ x: replica.drawnObj.left, y: childMidpointY });
     }
-    return path;
+    return new Polyline(path, {
+      stroke: this.connectorColor,
+      fill: null,
+
+      lockMovementX: true,
+      lockMovementY: true,
+      lockRotation: true,
+      lockScalingX: true,
+      lockScalingY: true,
+      lockUniScaling: true,
+      lockSkewingX: true,
+      lockSkewingY: true,
+    });
   }
 
   /**
@@ -1046,7 +987,7 @@ export function drawHierarchy(
  * @param {Map<string, OSD>} name2osd
  */
 export function setupMapping(pgId, registry, map, name2osd) {
-  console.log(`setting up a map for ${pgId}: ${map}`)
+  console.log(`setting up a map for ${pgId}: ${map}`);
   if (map.length == 0) {
     return;
   }
