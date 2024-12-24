@@ -1,7 +1,7 @@
 """
 device: device osd.{INT} [class STR] 
 
-bucket: [bucket-type] [bucket-name](STR) {
+bucket: [bucket-type] [bucket-name] (STR) {
     "id" [a unique negative numeric ID] 
     "weight" [the relative capacity/capability of the item(s)]
     "alg" [the bucket type: uniform | list | tree | straw2 ]  
@@ -20,26 +20,17 @@ rule: "rule" <rulename> {
 }
 """
 
-from hashlib import sha256
+import platform
 import random
-import sys
 from dataclasses import dataclass, field
 from enum import Enum, StrEnum, auto
-from typing import (
-    Any,
-    Generator,
-    Literal,
-    NewType,
-    NoReturn,
-    Optional,
-    Self,
-    TypedDict,
-)
-
-import platform
-
+from hashlib import sha256
+from typing import (Any, Generator, Literal, NewType, NoReturn, Optional, Self,
+                    TypedDict)
 
 assert platform.system() == "Linux", "Systems other than GNU/Linux are NOT supported"
+
+
 
 
 class BucketT(StrEnum):
@@ -172,16 +163,16 @@ class Bucket:
             case _:
                 raise NotImplementedError()
 
-    def _choose_uniform(self, x: int, r: int) -> Self | Device:
-        s = int(sha256(str((x, abs(self.id), r)).encode()).hexdigest(), 16)
+    def _choose_uniform(self, pg_id: int, failed_attempts: int) -> Self | Device:
+        s = int(sha256(str((pg_id, abs(self.id), failed_attempts)).encode()).hexdigest(), 16)
         return self.children[s % len(self.children)]
 
-    def _choose_straw2(self, x: int, r: int) -> Self | Device:
+    def _choose_straw2(self, pg_id: int, failed_attempts: int) -> Self | Device:
         ws = [c.weight for c in self.children]
         if sum(ws) == 0:
             ws[0] = UnitWeight
 
-        h = int(sha256(str((x, abs(self.id), r)).encode()).hexdigest(), 16)
+        h = int(sha256(str((pg_id, abs(self.id), failed_attempts)).encode()).hexdigest(), 16)
         random.seed(h)
         res = random.choices(self.children, ws)
         return res[0]
