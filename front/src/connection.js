@@ -850,14 +850,20 @@ class PG {
       rcPath.up();
       return null;
     }
+
+    this.drawnObj.set({stroke: "purple", strokeWidth: 2})
+    replica.drawnObj.set({stroke: "green", strokeWidth: 2})
+
     rcPath = new RCPath(
       `${this.name}->${replica.name}`,
       this.#calculatePathToReplica(replica),
       this.canvas,
       () => this.#calculatePathToReplica(replica),
       () => {
+        replica.drawnObj.set({stroke: null})
         this.connectors.delete(replica.name);
         if (this.connectors.size === 0) {
+          this.drawnObj.set({stroke: null})
           this.interPgConnAlloc.free(this.connectorID);
           this.connectorID = null;
           this.connectorColor = null;
