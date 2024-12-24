@@ -97,7 +97,7 @@ def setup_event_queue(r: ParserResult, death_proba: float) -> SetupResult:
         )
         init_weights[d.info.id] = d.weight
 
-    pgs = PGList(c=[PlacementGroup(PlacementGroupID_T(i)) for i in range(5)])
+    pgs = PGList(c=[PlacementGroup(PlacementGroupID_T(i)) for i in range(8)])
 
     cfg = PoolParams(size=3, min_size=2, pgs=pgs)
     tunables = Tunables(5)

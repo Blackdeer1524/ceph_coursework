@@ -38,6 +38,7 @@ export class PrimaryRegistry {
       }
       throw Error(`${pgId} has already been registered as a primary`);
     }
+    pg.drawnObj.set({stroke: "purple", strokeWidth: 2})
     this.registry.set(pg.id, pg);
     if (pg.pathToBucket === null) {
       pg.connectToBucket();
@@ -49,6 +50,7 @@ export class PrimaryRegistry {
     if (primary === undefined) {
       return;
     }
+    primary.drawnObj.set({stroke: null})
     primary.removeCurrentMapConnectors();
     this.registry.delete(pgId);
   }
@@ -851,7 +853,6 @@ class PG {
       return null;
     }
 
-    this.drawnObj.set({stroke: "purple", strokeWidth: 2})
     replica.drawnObj.set({stroke: "green", strokeWidth: 2})
 
     rcPath = new RCPath(
@@ -863,7 +864,6 @@ class PG {
         replica.drawnObj.set({stroke: null})
         this.connectors.delete(replica.name);
         if (this.connectors.size === 0) {
-          this.drawnObj.set({stroke: null})
           this.interPgConnAlloc.free(this.connectorID);
           this.connectorID = null;
           this.connectorColor = null;
