@@ -81,7 +81,7 @@ function animatePath(objId, path, canvas, callback) {
         ? { left: endX - Blob.radius }
         : { top: endY - Blob.radius },
       {
-        duration: lineLength * 5,
+        duration: lineLength * 3,
         onChange: canvas.renderAll.bind(canvas),
         onComplete: () => {
           canvas.remove(blob.g);

@@ -20,15 +20,15 @@ import {
 import { Bucket } from "./connection";
 
 const DEFAULT_CONFIG = `
-device 0 osd.0 class hdd
-device 1 osd.1 class hdd
-device 2 osd.2 class ssd
-device 3 osd.3 class ssd
-device 4 osd.4 class hdd
-device 5 osd.5 class hdd
-device 6 osd.6 class ssd
-device 7 osd.7 class ssd
-device 8 osd.8 class ssd
+device 0 osd.0
+device 1 osd.1
+device 2 osd.2
+device 3 osd.3
+device 4 osd.4
+device 5 osd.5
+device 6 osd.6
+device 7 osd.7
+device 8 osd.8
 
 host ceph-osd-server-1 {
     id -1

@@ -440,6 +440,7 @@ class Parser:
 
             if not self.match_substr("class"):
                 yield DeviceInfo(DeviceID_T(int(osd_id)))
+                self.skip_whitespace_lns_required()
                 continue
 
             self.skip_n(len("class"))
