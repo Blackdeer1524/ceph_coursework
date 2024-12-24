@@ -399,10 +399,10 @@ export class ConnectorAllocator {
   /**
    * @param {number} max
    */
-  constructor(max, normal = true) {
+  constructor(max, normal = true, step = 7) {
     this.limit = max;
     this.isAllocated = [];
-    this.step = 7;
+    this.step = step;
     if (gcd(max, this.step) != 1) {
       throw Error(
         "assertion error: allocator step and alloc size must be co-prime",
@@ -414,9 +414,9 @@ export class ConnectorAllocator {
         "#d53e4f",
         "#f46d43",
         "#fdae61",
-        "#fee08b",
-        "#e6f598",
-        "#abdda4",
+        "#02519e",
+        "#011f74",
+        "#0190a67",
         "#66c2a5",
         "#3288bd",
       ];
@@ -937,7 +937,7 @@ export function drawHierarchy(
     let prevOSD = null;
 
     let osd = undefined;
-    let bucketPgConnAlloc = new ConnectorAllocator(PGCount, false);
+    let bucketPgConnAlloc = new ConnectorAllocator(PGCount, false, 11);
     for (let child of root.children) {
       osd = new OSD(
         b,

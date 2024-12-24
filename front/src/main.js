@@ -34,22 +34,22 @@ host ceph-osd-server-1 {
     id -1
     alg uniform
     item osd.0 weight 1.00
-    item osd.1 weight 1.00
 }
 
 host ceph-osd-server-2 {
     id -2
     hash 0
     alg uniform
+    item osd.1 weight 1.00
     item osd.2 weight 1.00
     item osd.3 weight 1.00
-    item osd.4 weight 1.00
 }
 
 host ceph-osd-server-3 {
     id -3
     hash 0
     alg uniform
+    item osd.4 weight 1.00
     item osd.5 weight 1.00
     item osd.6 weight 1.00
     item osd.7 weight 1.00
@@ -63,25 +63,13 @@ root default{
     item ceph-osd-server-3 
 }
 
-rule cold {
+rule choice {
     id 0
-    type replicated
-    min_size 2
-    max_size 11
-    step take default class hdd
+    step take default 
     step chooseleaf firstn 0 type host
     step emit
 }
 
-rule hot {
-    id 1
-    type replicated
-    min_size 2
-    max_size 11
-    step take default class ssd
-    step chooseleaf firstn 0 type host
-    step emit
-}
 `;
 
 let timestampLabel = document.getElementById("time-label");
@@ -249,7 +237,7 @@ function main() {
         state = {
           start: new Bucket("User", INIT_GAP, 30, null, mapCanvas),
           registry: new PrimaryRegistry(),
-          interPgConnAlloc: new ConnectorAllocator(PGCount, true, true),
+          interPgConnAlloc: new ConnectorAllocator(PGCount, true, 7),
           peeringInfo: new Map(),
         };
         state.name2osd = drawHierarchy(
@@ -271,7 +259,7 @@ function main() {
         state = {
           start: new Bucket("User", INIT_GAP, 30, null, mapCanvas),
           registry: new PrimaryRegistry(),
-          interPgConnAlloc: new ConnectorAllocator(PGCount, true, true),
+          interPgConnAlloc: new ConnectorAllocator(PGCount, true, 7),
           peeringInfo: state.peeringInfo,
         };
         state.name2osd = drawHierarchy(

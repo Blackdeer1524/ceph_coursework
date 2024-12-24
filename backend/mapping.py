@@ -515,7 +515,6 @@ def map_pg(
         if pg.is_peering or (len(pg.maps) > 0 and pg.maps[-1] == res):
             continue
 
-        print(res, pg.maps[-1] if len(pg.maps) > 0 else None)
         prev_maps, success = pg.peer(context)
         devices_used_in_peering: set[DeviceID_T] = set()
         peering_id = hash((pg.id, context.current_time))

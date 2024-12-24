@@ -41,22 +41,10 @@ root default{
     item ceph-osd-server-3 
 }
 
-rule cold {
+rule choice {
     id 0
-    type replicated
-    min_size 2
-    max_size 11
-    step take default class hdd
+    step take default 
     step chooseleaf firstn 0 type host
     step emit
 }
 
-rule hot {
-    id 1
-    type replicated
-    min_size 2
-    max_size 11
-    step take default class ssd
-    step chooseleaf firstn 0 type host
-    step emit
-}

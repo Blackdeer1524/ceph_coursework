@@ -1,41 +1,21 @@
-from collections import defaultdict
-from dataclasses import dataclass
+import heapq
 import json
 import sys
+from collections import defaultdict
+from dataclasses import dataclass
+from parser import (Device, OutOfClusterWeight, Parser, ParserResult,
+                    ParsingError)
 from typing import Any, Generator
-from parser import OutOfClusterWeight
-import heapq
 
-
-from parser import Device, ParserResult, ParsingError
 from crush import Tunables
-from mapping import (
-    EOSDFailed,
-    EOSDRecovered,
-    ESendFailure,
-    PlacementGroupID_T,
-    DeviceID_T,
-    WeightT,
-    AliveIntervals,
-    Context,
-    EMainloopInteration,
-    EPeeringFailure,
-    EPeeringStart,
-    EPeeringSuccess,
-    EPrimaryRecvAcknowledged,
-    EPrimaryRecvFailure,
-    EPrimaryRecvSuccess,
-    EPrimaryReplicationFail,
-    EReplicaRecvAcknowledged,
-    EReplicaRecvFailure,
-    EReplicaRecvSuccess,
-    Event,
-    PGList,
-    PlacementGroup,
-    PoolParams,
-    get_iteration_event,
-)
-from parser import Parser
+from mapping import (AliveIntervals, Context, DeviceID_T, EMainloopInteration,
+                     EOSDFailed, EOSDRecovered, EPeeringFailure, EPeeringStart,
+                     EPeeringSuccess, EPrimaryRecvAcknowledged,
+                     EPrimaryRecvFailure, EPrimaryRecvSuccess,
+                     EPrimaryReplicationFail, EReplicaRecvAcknowledged,
+                     EReplicaRecvFailure, EReplicaRecvSuccess, ESendFailure,
+                     Event, PGList, PlacementGroup, PlacementGroupID_T,
+                     PoolParams, WeightT, get_iteration_event)
 
 
 def read_from_stdin_til_eof() -> Generator[str, None, None]:
@@ -84,6 +64,7 @@ def process_pending_events(q: list[Event]):
 
 
 import asyncio
+
 from websockets.asyncio.server import serve
 
 
@@ -116,7 +97,7 @@ def setup_event_queue(r: ParserResult, death_proba: float) -> SetupResult:
         )
         init_weights[d.info.id] = d.weight
 
-    pgs = PGList(c=[PlacementGroup(PlacementGroupID_T(i)) for i in range(8)])
+    pgs = PGList(c=[PlacementGroup(PlacementGroupID_T(i)) for i in range(5)])
 
     cfg = PoolParams(size=3, min_size=2, pgs=pgs)
     tunables = Tunables(5)
@@ -267,86 +248,85 @@ async def handler(websocket):  # type: ignore
     setup: SetupResult | None = None
     async for message in websocket:  # type: ignore
         m = json.loads(message)  # type: ignore
-        match m["type"]:
-            case "mode":
-                assert setup is not None
-                new_mode = m["new_mode"]
-                if new_mode == "randomized":
-                    setup.context.update_death_proba(0.25)
-                else:
-                    setup.context.update_death_proba(0)
-            case "adjust_rule":
-                assert setup is not None
-                try:
-                    r = Parser(m["message"]).parse()
-                except ParsingError as e:
-                    await websocket.send(  # type: ignore
-                        json.dumps(
-                            {
-                                "type": "hierarchy_fail",
-                                "data": str(e),
-                            }
-                        )
-                    )
-                else:
-                    hierarchy = r.root.to_json()
-                    setup = adjust_mapping(r, setup)
-                    await websocket.send(  # type: ignore
-                        json.dumps(
-                            {
-                                "type": "adjust_hierarchy_success",
-                                "data": hierarchy,
-                                "timestamp": setup.context.current_time,
-                            }
-                        )
-                    )
-            case "rule":
-                try:
-                    r = Parser(m["message"]).parse()
-                except ParsingError as e:
-                    await websocket.send(  # type: ignore
-                        json.dumps(
-                            {
-                                "type": "hierarchy_fail",
-                                "data": str(e),
-                            }
-                        )
-                    )
-                else:
-                    hierarchy = r.root.to_json()
-                    setup = setup_event_queue(
-                        r, setup.context.death_proba if setup is not None else 0.25
-                    )
-                    await websocket.send(  # type: ignore
-                        json.dumps(
-                            {
-                                "type": "hierarchy_success",
-                                "data": hierarchy,
-                            }
-                        )
-                    )
-            case "step":
-                assert setup is not None
-                time, messages = process_pending_events(setup.queue)
+        message_type = m["type"]
+        if message_type ==  "rule":
+            try:
+                r = Parser(m["message"]).parse()
+            except ParsingError as e:
                 await websocket.send(  # type: ignore
                     json.dumps(
-                        {"type": "events", "timestamp": time, "events": messages}
+                        {
+                            "type": "hierarchy_fail",
+                            "data": str(e),
+                        }
                     )
                 )
-            case "insert":
-                assert setup is not None
-                for event in setup.pgs.object_insert(setup.context, m["id"]):
-                    heapq.heappush(setup.queue, event)
-            case other:
-                print(other)
-
+            else:
+                hierarchy = r.root.to_json()
+                setup = setup_event_queue(
+                    r, setup.context.death_proba if setup is not None else 0.25
+                )
+                await websocket.send(  # type: ignore
+                    json.dumps(
+                        {
+                            "type": "hierarchy_success",
+                            "data": hierarchy,
+                        }
+                    )
+                )
+        elif message_type ==  "adjust_rule":
+            assert setup is not None
+            try:
+                r = Parser(m["message"]).parse()
+            except ParsingError as e:
+                await websocket.send(  # type: ignore
+                    json.dumps(
+                        {
+                            "type": "hierarchy_fail",
+                            "data": str(e),
+                        }
+                    )
+                )
+            else:
+                hierarchy = r.root.to_json()
+                setup = adjust_mapping(r, setup)
+                await websocket.send(  # type: ignore
+                    json.dumps(
+                        {
+                            "type": "adjust_hierarchy_success",
+                            "data": hierarchy,
+                            "timestamp": setup.context.current_time,
+                        }
+                    )
+                )
+        elif message_type == "step":
+            assert setup is not None
+            time, messages = process_pending_events(setup.queue)
+            await websocket.send(  # type: ignore
+                json.dumps(
+                    {"type": "events", "timestamp": time, "events": messages}
+                )
+            )
+        elif message_type == "insert":
+            assert setup is not None
+            for event in setup.pgs.object_insert(setup.context, m["id"]):
+                heapq.heappush(setup.queue, event)
+        elif message_type == "mode":
+            assert setup is not None
+            new_mode = m["new_mode"]
+            if new_mode == "randomized":
+                setup.context.update_death_proba(0.25)
+            else:
+                setup.context.update_death_proba(0)
+        else:
+            print(m)
         # await websocket.send(message)
 
 
-async def test():
+async def main():
     async with serve(handler, "localhost", 8080) as server:  # type: ignore
         await server.serve_forever()  # type: ignore
 
 
 if __name__ == "__main__":
-    asyncio.run(test())
+    asyncio.run(main())

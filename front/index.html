@@ -54,6 +54,38 @@
             </div>
           </div>
           <div
+            id="settings-pop-up"
+            class="absolute w-[80%] left-[10%] top-[10%] bg-white z-10 border-black border-2 overflow-hidden flex-col invisible"
+          >
+            <div id="settings-inputs" class="flex flex-grow">
+              <div name="col-1" class="flex flex-col">
+                <label class="m-2">PG count</label>
+              </div> 
+              <div name="col-3" class="flex-grow flex flex-col">
+                <input type="number" class="border-black border-2 m-2 text-center"/>
+              </div>
+            </div>
+            <div class="bg-white flex flex-row-reverse justify-around">
+              <button
+                class="flex-shrink inline-block px-2 py-1 bg-white rounded border border-black m-2"
+                id="settings-close"
+              >
+                Close
+              </button>
+              <button
+                class="flex-shrink inline-block px-2 py-1 bg-white rounded border border-black m-2"
+                id="settings-save"
+              >
+                Save
+              </button>
+            </div>
+            
+            <!-- <div name="" class="flex flex-x-grow"> -->
+            <!--   <input type="number" class="m-2 border-black border-2 rounded-md w-full"/> -->
+            <!--   <label class="flex-grow-0">12313213</label> -->
+            <!-- </div> -->
+          </div>
+          <div
             id="canvasContainer"
             class="flex-grow overflow-hidden bg-white relative"
           >
