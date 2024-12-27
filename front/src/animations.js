@@ -77,7 +77,7 @@ function animatePath(objId, path, canvas, callback) {
     canvas.add(blob.g);
 
     blob.g.animate(
-      startX - endX > 0
+      startX !== endX
         ? { left: endX - Blob.radius }
         : { top: endY - Blob.radius },
       {
