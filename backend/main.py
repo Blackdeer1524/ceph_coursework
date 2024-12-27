@@ -92,10 +92,10 @@ def setup_event_queue(r: ParserResult, death_proba: float) -> SetupResult:
 
     init_weights: dict[DeviceID_T, WeightT] = {}
     for d in r.devices.values():
-        context.alive_intervals_per_device[d.info.id] = AliveIntervals(
-            d.info.id, context.death_proba
-        )
         init_weights[d.info.id] = d.weight
+        context.alive_intervals_per_device[d.info.id] = AliveIntervals(
+            d.info.id, context.death_proba, d.weight
+        )
 
     pgs = PGList(c=[PlacementGroup(PlacementGroupID_T(i)) for i in range(8)])
 
@@ -126,7 +126,7 @@ def adjust_mapping(r: ParserResult, setup: SetupResult):
     for d in r.devices.values():
         init_weights[d.info.id] = d.weight
         context.alive_intervals_per_device[d.info.id] = AliveIntervals(
-            d.info.id, context.death_proba
+            d.info.id, context.death_proba, d.weight
         )
 
         oldDevice = setup.devices.get(d.info.id)

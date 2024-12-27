@@ -46,19 +46,22 @@ host ceph-osd-server-2 {
 
 host ceph-osd-server-3 {
     id -3
-    hash 0
-    alg straw2
+    item osd.3 weight 1.00
     item osd.4 weight 1.00
-    item osd.5 weight 1.00
-    item osd.6 weight 1.00
+}
+
+rack rack-1 {
+    id -4
+    alg straw2
+	item ceph-osd-server-2
+	item ceph-osd-server-3
 }
 
 root default{
-    id -4
+    id -5
     alg straw2
-    item ceph-osd-server-1 
-    item ceph-osd-server-2 
-    item ceph-osd-server-3 
+    item ceph-osd-server-1
+	item rack-1
 }
 
 rule choice {

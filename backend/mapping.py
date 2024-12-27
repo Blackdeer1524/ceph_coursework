@@ -271,11 +271,14 @@ def test_proba(p: float, *args: Hashable) -> bool:
 
 
 class AliveIntervals:
-    def __init__(self, id: int, p_die: float):
+    def __init__(self, id: int, p_die: float, init_weight: WeightT):
         self.id = id
         self.p_die = p_die
+        self.init_weight = init_weight
 
-    def check_at_time(self, t: int) -> bool:
+    def is_alive(self, t: int) -> bool:
+        if (self.init_weight == OutOfClusterWeight): 
+            return False
         return test_proba(self.p_die, self.id, str(t))
 
     def update_death_proba(self, p: float):
@@ -340,7 +343,7 @@ class PlacementGroup:
             all(
                 any(
                     (
-                        context.alive_intervals_per_device[id].check_at_time(
+                        context.alive_intervals_per_device[id].is_alive(
                             context.current_time + j * context.timestep
                         )
                         if context.alive_intervals_per_device.get(id) is not None
@@ -368,7 +371,7 @@ class PlacementGroup:
 
         operation_id = hash((obj_id, time()))
 
-        if not context.alive_intervals_per_device[primary_id].check_at_time(
+        if not context.alive_intervals_per_device[primary_id].is_alive(
             primary_write_time
         ) or not test_proba(
             context.failure_proba[primary_id],
@@ -396,7 +399,7 @@ class PlacementGroup:
         secondary = cur_map[1:]
         failed = False
         for device_id in secondary:
-            if context.alive_intervals_per_device[device_id].check_at_time(
+            if context.alive_intervals_per_device[device_id].is_alive(
                 primary_write_time + context.conn_speed[primary_id, device_id]
             ) and test_proba(
                 context.failure_proba[device_id],
@@ -588,7 +591,7 @@ def get_iteration_event(
                 tag.callback_results.append(
                     Event(EOSDFailed(d_id), context.current_time)
                 )
-            elif intervals.check_at_time(context.current_time):
+            elif intervals.is_alive(context.current_time):
                 if device.weight != init_weights[d_id]:
                     device.update_weight(init_weights[d_id])
                     tag.callback_results.append(
